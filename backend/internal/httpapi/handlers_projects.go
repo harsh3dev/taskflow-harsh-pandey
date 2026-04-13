@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/harshpn/taskflow/internal/auth"
-	"github.com/harshpn/taskflow/internal/store"
+	"github.com/harshpn/taskflow/internal/service"
 )
 
 type projectRequest struct {
@@ -20,13 +20,13 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projects, err := s.store.ListAccessibleProjects(r.Context(), user.UserID)
+	projects, err := s.projects.ListAccessibleProjects(r.Context(), user.UserID)
 	if err != nil {
 		s.writeInternalError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+	writeJSON(w, http.StatusOK, map[string]any{"projects": newProjectsResponse(projects)})
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
@@ -35,13 +35,13 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users, err := s.store.ListUsers(r.Context(), r.URL.Query().Get("q"))
+	users, err := s.users.ListUsers(r.Context(), r.URL.Query().Get("q"))
 	if err != nil {
 		s.writeInternalError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+	writeJSON(w, http.StatusOK, map[string]any{"users": newUsersResponse(users)})
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -56,18 +56,17 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.Name) == "" {
-		writeValidationError(w, r, map[string]string{"name": "is required"})
+	project, fields, err := s.projects.CreateProject(r.Context(), user.UserID, req.Name, req.Description)
+	if len(fields) > 0 {
+		writeValidationError(w, r, fields)
 		return
 	}
-
-	project, err := s.store.CreateProject(r.Context(), user.UserID, strings.TrimSpace(req.Name), strings.TrimSpace(req.Description))
 	if err != nil {
 		s.writeInternalError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"project": project})
+	writeJSON(w, http.StatusCreated, map[string]any{"project": newProjectResponse(project)})
 }
 
 func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
@@ -77,30 +76,13 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectID := r.PathValue("id")
-	project, err := s.store.GetProject(r.Context(), projectID)
+	project, err := s.projects.GetProject(r.Context(), r.PathValue("id"), user.UserID)
 	if err != nil {
 		s.handleStoreError(w, r, err)
 		return
 	}
 
-	allowed, err := s.store.CanAccessProject(r.Context(), projectID, user.UserID)
-	if err != nil {
-		s.handleStoreError(w, r, err)
-		return
-	}
-	if !allowed {
-		writeError(w, r, http.StatusForbidden, "forbidden", "forbidden")
-		return
-	}
-
-	tasks, err := s.store.ListProjectTasks(r.Context(), project.ID, store.TaskFilters{})
-	if err != nil {
-		s.writeInternalError(w, r, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, store.ProjectWithTasks{Project: project, Tasks: tasks})
+	writeJSON(w, http.StatusOK, newProjectDetailResponse(project))
 }
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
@@ -115,13 +97,13 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := s.store.UpdateProject(r.Context(), r.PathValue("id"), user.UserID, strings.TrimSpace(req.Name), strings.TrimSpace(req.Description))
+	project, err := s.projects.UpdateProject(r.Context(), r.PathValue("id"), user.UserID, req.Name, req.Description)
 	if err != nil {
 		s.handleStoreError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"project": project})
+	writeJSON(w, http.StatusOK, map[string]any{"project": newProjectResponse(project)})
 }
 
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +113,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.store.DeleteProject(r.Context(), r.PathValue("id"), user.UserID)
+	err := s.projects.DeleteProject(r.Context(), r.PathValue("id"), user.UserID)
 	if err != nil {
 		s.handleStoreError(w, r, err)
 		return
@@ -147,31 +129,14 @@ func (s *Server) handleListProjectTasks(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	projectID := r.PathValue("id")
-	if _, err := s.store.GetProject(r.Context(), projectID); err != nil {
-		s.handleStoreError(w, r, err)
-		return
-	}
-
-	allowed, err := s.store.CanAccessProject(r.Context(), projectID, user.UserID)
-	if err != nil {
-		s.handleStoreError(w, r, err)
-		return
-	}
-	if !allowed {
-		writeError(w, r, http.StatusForbidden, "forbidden", "forbidden")
-		return
-	}
-
-	filters := store.TaskFilters{
+	tasks, err := s.projects.ListProjectTasks(r.Context(), r.PathValue("id"), user.UserID, service.TaskFilters{
 		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
 		AssigneeID: strings.TrimSpace(r.URL.Query().Get("assignee")),
-	}
-	tasks, err := s.store.ListProjectTasks(r.Context(), projectID, filters)
+	})
 	if err != nil {
-		s.writeInternalError(w, r, err)
+		s.handleStoreError(w, r, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": newTasksResponse(tasks)})
 }

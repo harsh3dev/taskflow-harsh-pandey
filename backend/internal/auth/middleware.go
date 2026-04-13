@@ -20,7 +20,11 @@ func UserFromContext(ctx context.Context) (AuthenticatedUser, bool) {
 	return user, ok
 }
 
-func Middleware(tokenManager TokenManager, unauthorized func(http.ResponseWriter, *http.Request, string)) func(http.Handler) http.Handler {
+type TokenParser interface {
+	ParseToken(raw string) (Claims, error)
+}
+
+func Middleware(tokenManager TokenParser, unauthorized func(http.ResponseWriter, *http.Request, string)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := strings.TrimSpace(r.Header.Get("Authorization"))

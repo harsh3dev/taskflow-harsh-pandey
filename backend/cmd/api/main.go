@@ -16,6 +16,7 @@ import (
 	"github.com/harshpn/taskflow/internal/auth"
 	"github.com/harshpn/taskflow/internal/config"
 	"github.com/harshpn/taskflow/internal/httpapi"
+	"github.com/harshpn/taskflow/internal/service"
 	"github.com/harshpn/taskflow/internal/store"
 )
 
@@ -59,10 +60,11 @@ func main() {
 	})
 	server := httpapi.NewServer(httpapi.Dependencies{
 		Logger:              logger,
-		Store:               st,
-		TokenManager:        tokenManager,
-		RefreshTokenTTL:     cfg.RefreshTokenTTL,
-		BcryptCost:          cfg.BcryptCost,
+		TokenParser:         tokenManager,
+		AuthService:         service.NewAuthService(st, tokenManager, cfg.RefreshTokenTTL, cfg.BcryptCost, nil),
+		ProjectService:      service.NewProjectService(st),
+		TaskService:         service.NewTaskService(st),
+		UserService:         service.NewUserService(st),
 		MaxRequestBodyBytes: cfg.MaxRequestBodyBytes,
 	})
 

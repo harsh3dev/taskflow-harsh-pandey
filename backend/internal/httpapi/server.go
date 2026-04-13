@@ -3,38 +3,39 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/harshpn/taskflow/internal/auth"
-	"github.com/harshpn/taskflow/internal/store"
 )
 
 type Dependencies struct {
 	Logger              *slog.Logger
-	Store               *store.Store
-	TokenManager        auth.TokenManager
-	RefreshTokenTTL     time.Duration
-	BcryptCost          int
+	TokenParser         auth.TokenParser
+	AuthService         authService
+	ProjectService      projectService
+	TaskService         taskService
+	UserService         userService
 	MaxRequestBodyBytes int64
 }
 
 type Server struct {
-	logger          *slog.Logger
-	store           *store.Store
-	tokenManager    auth.TokenManager
-	refreshTokenTTL time.Duration
-	bcryptCost      int
-	maxBodyBytes    int64
+	logger       *slog.Logger
+	tokenParser  auth.TokenParser
+	authService  authService
+	projects     projectService
+	tasks        taskService
+	users        userService
+	maxBodyBytes int64
 }
 
 func NewServer(deps Dependencies) *Server {
 	return &Server{
-		logger:          deps.Logger,
-		store:           deps.Store,
-		tokenManager:    deps.TokenManager,
-		refreshTokenTTL: deps.RefreshTokenTTL,
-		bcryptCost:      deps.BcryptCost,
-		maxBodyBytes:    deps.MaxRequestBodyBytes,
+		logger:       deps.Logger,
+		tokenParser:  deps.TokenParser,
+		authService:  deps.AuthService,
+		projects:     deps.ProjectService,
+		tasks:        deps.TaskService,
+		users:        deps.UserService,
+		maxBodyBytes: deps.MaxRequestBodyBytes,
 	}
 }
 
@@ -59,11 +60,11 @@ func (s *Server) Routes() http.Handler {
 	protected.HandleFunc("PATCH /tasks/{id}", s.handleUpdateTask)
 	protected.HandleFunc("DELETE /tasks/{id}", s.handleDeleteTask)
 
-	mux.Handle("/projects", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
-	mux.Handle("/projects/", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
-	mux.Handle("/users", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
-	mux.Handle("/users/", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
-	mux.Handle("/tasks/", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
+	mux.Handle("/projects", auth.Middleware(s.tokenParser, s.writeUnauthorized)(protected))
+	mux.Handle("/projects/", auth.Middleware(s.tokenParser, s.writeUnauthorized)(protected))
+	mux.Handle("/users", auth.Middleware(s.tokenParser, s.writeUnauthorized)(protected))
+	mux.Handle("/users/", auth.Middleware(s.tokenParser, s.writeUnauthorized)(protected))
+	mux.Handle("/tasks/", auth.Middleware(s.tokenParser, s.writeUnauthorized)(protected))
 
 	return s.withRequestID(s.withLogging(s.withRecovery(s.enforceJSON(mux))))
 }

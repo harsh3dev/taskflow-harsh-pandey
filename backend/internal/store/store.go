@@ -490,8 +490,7 @@ func (s *Store) UpdateTask(ctx context.Context, input UpdateTaskInput) (Task, er
 			status = CASE WHEN $6 THEN $7::task_status ELSE t.status END,
 			priority = CASE WHEN $8 THEN $9::task_priority ELSE t.priority END,
 			assignee_id = CASE WHEN $10 THEN $11::uuid ELSE t.assignee_id END,
-			due_date = CASE WHEN $12 THEN $13::date ELSE t.due_date END,
-			updated_at = NOW()
+			due_date = CASE WHEN $12 THEN $13::date ELSE t.due_date END
 		FROM projects p
 		WHERE t.project_id = p.id
 		  AND t.id = $1
