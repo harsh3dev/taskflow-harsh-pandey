@@ -8,6 +8,7 @@ frontend/dist
 # Go
 backend/bin
 backend/.cache
+.cache
 
 # Logs
 *.log

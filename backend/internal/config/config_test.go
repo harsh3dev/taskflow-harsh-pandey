@@ -18,6 +18,7 @@ func TestLoadRejectsWeakJWTSecret(t *testing.T) {
 func TestLoadRejectsInvalidIntegers(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/taskflow?sslmode=disable")
 	t.Setenv("JWT_SECRET", "12345678901234567890123456789012")
+	t.Setenv("REFRESH_TOKEN_TTL", "720h")
 	t.Setenv("DB_MAX_OPEN_CONNS", "abc")
 
 	_, err := Load()
@@ -28,8 +29,10 @@ func TestLoadRejectsInvalidIntegers(t *testing.T) {
 
 func TestLoadParsesProductionSettings(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/taskflow?sslmode=disable")
-	t.Setenv("JWT_SECRET", "12345678901234567890123456789012")
-	t.Setenv("JWT_TTL_HOURS", "48")
+	t.Setenv("JWT_SIGNING_KEYS", "old:12345678901234567890123456789012,new:abcdefghijklmnopqrstuvwxyz123456")
+	t.Setenv("JWT_ACTIVE_KEY_ID", "new")
+	t.Setenv("ACCESS_TOKEN_TTL", "45m")
+	t.Setenv("REFRESH_TOKEN_TTL", "720h")
 	t.Setenv("BCRYPT_COST", "13")
 	t.Setenv("DB_MAX_OPEN_CONNS", "20")
 	t.Setenv("DB_MAX_IDLE_CONNS", "10")
@@ -45,8 +48,14 @@ func TestLoadParsesProductionSettings(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	if cfg.JWTTTL != 48*time.Hour {
-		t.Fatalf("unexpected JWT TTL: %v", cfg.JWTTTL)
+	if cfg.AccessTokenTTL != 45*time.Minute {
+		t.Fatalf("unexpected access token TTL: %v", cfg.AccessTokenTTL)
+	}
+	if cfg.RefreshTokenTTL != 720*time.Hour {
+		t.Fatalf("unexpected refresh token TTL: %v", cfg.RefreshTokenTTL)
+	}
+	if cfg.JWTActiveKeyID != "new" {
+		t.Fatalf("unexpected active key id: %s", cfg.JWTActiveKeyID)
 	}
 	if cfg.BcryptCost != 13 {
 		t.Fatalf("unexpected bcrypt cost: %d", cfg.BcryptCost)
@@ -73,5 +82,22 @@ func TestLoadRequiresExplicitRuntimeSettingsInProduction(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected production config without explicit runtime settings to fail")
+	}
+}
+
+func TestLoadFallsBackToLegacyJWTSecret(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/taskflow?sslmode=disable")
+	t.Setenv("JWT_SECRET", "12345678901234567890123456789012")
+	t.Setenv("REFRESH_TOKEN_TTL", "720h")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.JWTActiveKeyID != "default" {
+		t.Fatalf("unexpected active key id: %s", cfg.JWTActiveKeyID)
+	}
+	if got := cfg.JWTSigningKeys["default"]; got != "12345678901234567890123456789012" {
+		t.Fatalf("unexpected legacy signing key: %s", got)
 	}
 }

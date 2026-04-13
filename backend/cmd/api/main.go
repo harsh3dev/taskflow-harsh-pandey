@@ -50,11 +50,18 @@ func main() {
 	}
 
 	st := store.New(db)
-	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
+	tokenManager := auth.NewTokenManager(auth.TokenManagerConfig{
+		ActiveKeyID:    cfg.JWTActiveKeyID,
+		SigningKeys:    cfg.JWTSigningKeys,
+		AccessTokenTTL: cfg.AccessTokenTTL,
+		Issuer:         cfg.JWTIssuer,
+		Audience:       cfg.JWTAudience,
+	})
 	server := httpapi.NewServer(httpapi.Dependencies{
 		Logger:              logger,
 		Store:               st,
 		TokenManager:        tokenManager,
+		RefreshTokenTTL:     cfg.RefreshTokenTTL,
 		BcryptCost:          cfg.BcryptCost,
 		MaxRequestBodyBytes: cfg.MaxRequestBodyBytes,
 	})

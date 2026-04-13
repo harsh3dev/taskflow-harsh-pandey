@@ -12,8 +12,12 @@ import (
 type Config struct {
 	Port                string
 	DatabaseURL         string
-	JWTSecret           string
-	JWTTTL              time.Duration
+	JWTActiveKeyID      string
+	JWTSigningKeys      map[string]string
+	JWTIssuer           string
+	JWTAudience         string
+	AccessTokenTTL      time.Duration
+	RefreshTokenTTL     time.Duration
 	BcryptCost          int
 	AppEnv              string
 	DBMaxOpenConns      int
@@ -29,8 +33,9 @@ func Load() (Config, error) {
 	cfg := Config{
 		Port:        envOrDefault("BACKEND_PORT", "8080"),
 		DatabaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		JWTSecret:   strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		AppEnv:      envOrDefault("APP_ENV", "development"),
+		JWTIssuer:   envOrDefault("JWT_ISSUER", "taskflow"),
+		JWTAudience: envOrDefault("JWT_AUDIENCE", "taskflow-api"),
 	}
 	isProduction := strings.EqualFold(cfg.AppEnv, "production")
 
@@ -38,18 +43,21 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 
-	if cfg.JWTSecret == "" {
-		return Config{}, fmt.Errorf("JWT_SECRET is required")
-	}
-	if len(cfg.JWTSecret) < 32 {
-		return Config{}, fmt.Errorf("JWT_SECRET must be at least 32 characters")
-	}
-
-	ttlHours, err := intEnvSetting("JWT_TTL_HOURS", 24, isProduction)
+	signingKeys, activeKeyID, err := loadJWTSigningKeys()
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.JWTTTL = time.Duration(ttlHours) * time.Hour
+	cfg.JWTSigningKeys = signingKeys
+	cfg.JWTActiveKeyID = activeKeyID
+
+	cfg.AccessTokenTTL, err = accessTokenTTLSetting(isProduction)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RefreshTokenTTL, err = durationEnvSetting("REFRESH_TOKEN_TTL", 30*24*time.Hour, isProduction)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg.BcryptCost, err = intEnvSetting("BCRYPT_COST", 12, isProduction)
 	if err != nil {
@@ -150,4 +158,80 @@ func durationEnvSetting(key string, fallback time.Duration, requireExplicit bool
 	}
 
 	return parsed, nil
+}
+
+func accessTokenTTLSetting(requireExplicit bool) (time.Duration, error) {
+	if value := strings.TrimSpace(os.Getenv("ACCESS_TOKEN_TTL")); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return 0, fmt.Errorf("ACCESS_TOKEN_TTL must be a valid duration")
+		}
+		if parsed <= 0 {
+			return 0, fmt.Errorf("ACCESS_TOKEN_TTL must be greater than zero")
+		}
+		return parsed, nil
+	}
+
+	if legacyValue := strings.TrimSpace(os.Getenv("JWT_TTL_HOURS")); legacyValue != "" {
+		parsed, err := strconv.Atoi(legacyValue)
+		if err != nil {
+			return 0, fmt.Errorf("JWT_TTL_HOURS must be a valid integer")
+		}
+		if parsed <= 0 {
+			return 0, fmt.Errorf("JWT_TTL_HOURS must be greater than zero")
+		}
+		return time.Duration(parsed) * time.Hour, nil
+	}
+
+	if requireExplicit {
+		return 0, fmt.Errorf("ACCESS_TOKEN_TTL must be set when APP_ENV=production")
+	}
+	return 15 * time.Minute, nil
+}
+
+func loadJWTSigningKeys() (map[string]string, string, error) {
+	activeKeyID := strings.TrimSpace(os.Getenv("JWT_ACTIVE_KEY_ID"))
+	encodedKeys := strings.TrimSpace(os.Getenv("JWT_SIGNING_KEYS"))
+	legacySecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+
+	keys := map[string]string{}
+	if encodedKeys != "" {
+		for _, entry := range strings.Split(encodedKeys, ",") {
+			keyID, secret, found := strings.Cut(strings.TrimSpace(entry), ":")
+			if !found || strings.TrimSpace(keyID) == "" || strings.TrimSpace(secret) == "" {
+				return nil, "", fmt.Errorf("JWT_SIGNING_KEYS entries must be in kid:secret format")
+			}
+			if len(strings.TrimSpace(secret)) < 32 {
+				return nil, "", fmt.Errorf("JWT signing secrets must be at least 32 characters")
+			}
+			keys[strings.TrimSpace(keyID)] = strings.TrimSpace(secret)
+		}
+	}
+
+	if len(keys) == 0 {
+		if legacySecret == "" {
+			return nil, "", fmt.Errorf("JWT_SIGNING_KEYS or JWT_SECRET is required")
+		}
+		if len(legacySecret) < 32 {
+			return nil, "", fmt.Errorf("JWT_SECRET must be at least 32 characters")
+		}
+		keys["default"] = legacySecret
+		if activeKeyID == "" {
+			activeKeyID = "default"
+		}
+	}
+
+	if activeKeyID == "" {
+		if _, ok := keys["default"]; ok {
+			activeKeyID = "default"
+		} else {
+			return nil, "", fmt.Errorf("JWT_ACTIVE_KEY_ID is required when JWT_SIGNING_KEYS is set")
+		}
+	}
+
+	if _, ok := keys[activeKeyID]; !ok {
+		return nil, "", fmt.Errorf("JWT_ACTIVE_KEY_ID must reference a configured signing key")
+	}
+
+	return keys, activeKeyID, nil
 }

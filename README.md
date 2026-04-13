@@ -61,6 +61,12 @@ At this stage, `docker-compose.yml` provisions PostgreSQL only. The repository a
 
 All expected local environment variables are listed in `.env.example`.
 
+Backend auth/session highlights:
+- Access tokens and refresh tokens now have separate lifetimes. The backend expects `ACCESS_TOKEN_TTL` and `REFRESH_TOKEN_TTL`.
+- Access tokens are JWTs with `jti`, `iss`, and `aud` claims. `JWT_ISSUER` and `JWT_AUDIENCE` control validation.
+- Signing keys support rotation through `JWT_SIGNING_KEYS` plus `JWT_ACTIVE_KEY_ID`. `JWT_SECRET` remains as a single-key local fallback.
+- Login and register issue both an access token and a refresh token. Refresh tokens are persisted server-side, rotated on every refresh, revocable on logout, and family-wide revocation is triggered if an already-rotated refresh token is reused.
+
 ## Next Planned Milestones
 
 - Phase 2: backend API and auth

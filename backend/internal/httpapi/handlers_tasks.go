@@ -27,20 +27,6 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectID := r.PathValue("id")
-	if _, err := s.store.GetProject(r.Context(), projectID); err != nil {
-		s.handleStoreError(w, r, err)
-		return
-	}
-
-	allowed, err := s.store.CanAccessProject(r.Context(), projectID, user.UserID)
-	if err != nil {
-		s.handleStoreError(w, r, err)
-		return
-	}
-	if !allowed {
-		writeError(w, r, http.StatusForbidden, "forbidden", "forbidden")
-		return
-	}
 
 	var req taskRequest
 	if !decodeJSON(w, r, &req) {

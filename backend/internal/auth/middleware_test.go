@@ -8,7 +8,13 @@ import (
 )
 
 func TestMiddlewareRejectsMissingBearerToken(t *testing.T) {
-	tokenManager := NewTokenManager("12345678901234567890123456789012", time.Hour)
+	tokenManager := NewTokenManager(TokenManagerConfig{
+		ActiveKeyID:    "default",
+		SigningKeys:    map[string]string{"default": "12345678901234567890123456789012"},
+		AccessTokenTTL: time.Hour,
+		Issuer:         "taskflow",
+		Audience:       "taskflow-api",
+	})
 	called := false
 
 	handler := Middleware(tokenManager, func(w http.ResponseWriter, _ *http.Request, reason string) {
@@ -34,10 +40,16 @@ func TestMiddlewareRejectsMissingBearerToken(t *testing.T) {
 }
 
 func TestMiddlewareInjectsAuthenticatedUser(t *testing.T) {
-	tokenManager := NewTokenManager("12345678901234567890123456789012", time.Hour)
-	token, err := tokenManager.IssueToken("user-123", "test@example.com")
+	tokenManager := NewTokenManager(TokenManagerConfig{
+		ActiveKeyID:    "default",
+		SigningKeys:    map[string]string{"default": "12345678901234567890123456789012"},
+		AccessTokenTTL: time.Hour,
+		Issuer:         "taskflow",
+		Audience:       "taskflow-api",
+	})
+	token, err := tokenManager.IssueAccessToken("user-123", "test@example.com")
 	if err != nil {
-		t.Fatalf("IssueToken returned error: %v", err)
+		t.Fatalf("IssueAccessToken returned error: %v", err)
 	}
 
 	handler := Middleware(tokenManager, func(w http.ResponseWriter, _ *http.Request, _ string) {

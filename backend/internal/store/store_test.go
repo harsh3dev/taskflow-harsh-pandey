@@ -89,6 +89,100 @@ func TestGetTaskAccessReturnsRoles(t *testing.T) {
 	}
 }
 
+func TestCreateTaskEnforcesProjectAccessInWriteQuery(t *testing.T) {
+	store, mock, cleanup := newMockStore(t)
+	defer cleanup()
+
+	now := time.Now().UTC()
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		INSERT INTO tasks (title, description, status, priority, project_id, assignee_id, due_date, creator_id)
+		SELECT $1, NULLIF($2, ''), $3, $4, p.id, $6, $7, $8
+		FROM projects p
+		WHERE p.id = $5
+		  AND (
+			p.owner_id = $8
+			OR EXISTS (
+				SELECT 1
+				FROM tasks existing
+				WHERE existing.project_id = p.id
+				  AND existing.assignee_id = $8
+			)
+		  )
+		RETURNING id, title, COALESCE(description, ''), status, priority, project_id, assignee_id, creator_id, due_date, created_at, updated_at
+	`)).
+		WithArgs("Task", "Desc", "todo", "medium", "project-1", nil, nil, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "title", "description", "status", "priority", "project_id", "assignee_id", "creator_id", "due_date", "created_at", "updated_at",
+		}).AddRow("task-1", "Task", "Desc", "todo", "medium", "project-1", nil, "user-1", nil, now, now))
+
+	task, err := store.CreateTask(context.Background(), CreateTaskInput{
+		ProjectID:   "project-1",
+		Title:       "Task",
+		Description: "Desc",
+		Status:      "todo",
+		Priority:    "medium",
+		CreatorID:   "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask returned error: %v", err)
+	}
+	if task.ID != "task-1" {
+		t.Fatalf("unexpected task id: %s", task.ID)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestCreateTaskReturnsForbiddenWhenActorCannotWriteProject(t *testing.T) {
+	store, mock, cleanup := newMockStore(t)
+	defer cleanup()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		INSERT INTO tasks (title, description, status, priority, project_id, assignee_id, due_date, creator_id)
+		SELECT $1, NULLIF($2, ''), $3, $4, p.id, $6, $7, $8
+		FROM projects p
+		WHERE p.id = $5
+		  AND (
+			p.owner_id = $8
+			OR EXISTS (
+				SELECT 1
+				FROM tasks existing
+				WHERE existing.project_id = p.id
+				  AND existing.assignee_id = $8
+			)
+		  )
+		RETURNING id, title, COALESCE(description, ''), status, priority, project_id, assignee_id, creator_id, due_date, created_at, updated_at
+	`)).
+		WithArgs("Task", "", "todo", "medium", "project-1", nil, nil, "user-2").
+		WillReturnError(sql.ErrNoRows)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, name, COALESCE(description, ''), owner_id, created_at
+		FROM projects
+		WHERE id = $1
+	`)).
+		WithArgs("project-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "description", "owner_id", "created_at"}).
+			AddRow("project-1", "Project", "", "owner-1", time.Now().UTC()))
+
+	_, err := store.CreateTask(context.Background(), CreateTaskInput{
+		ProjectID: "project-1",
+		Title:     "Task",
+		Status:    "todo",
+		Priority:  "medium",
+		CreatorID: "user-2",
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func TestUpdateTaskClearsNullableFieldsAndChecksActor(t *testing.T) {
 	store, mock, cleanup := newMockStore(t)
 	defer cleanup()

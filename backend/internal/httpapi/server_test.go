@@ -16,8 +16,15 @@ func newTestServer(t *testing.T, maxBodyBytes int64) *Server {
 	t.Helper()
 
 	return NewServer(Dependencies{
-		Logger:              slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TokenManager:        auth.NewTokenManager("12345678901234567890123456789012", time.Hour),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		TokenManager: auth.NewTokenManager(auth.TokenManagerConfig{
+			ActiveKeyID:    "default",
+			SigningKeys:    map[string]string{"default": "12345678901234567890123456789012"},
+			AccessTokenTTL: time.Hour,
+			Issuer:         "taskflow",
+			Audience:       "taskflow-api",
+		}),
+		RefreshTokenTTL:     24 * time.Hour,
 		BcryptCost:          12,
 		MaxRequestBodyBytes: maxBodyBytes,
 	})

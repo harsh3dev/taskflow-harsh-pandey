@@ -3,6 +3,7 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/harshpn/taskflow/internal/auth"
 	"github.com/harshpn/taskflow/internal/store"
@@ -12,25 +13,28 @@ type Dependencies struct {
 	Logger              *slog.Logger
 	Store               *store.Store
 	TokenManager        auth.TokenManager
+	RefreshTokenTTL     time.Duration
 	BcryptCost          int
 	MaxRequestBodyBytes int64
 }
 
 type Server struct {
-	logger       *slog.Logger
-	store        *store.Store
-	tokenManager auth.TokenManager
-	bcryptCost   int
-	maxBodyBytes int64
+	logger          *slog.Logger
+	store           *store.Store
+	tokenManager    auth.TokenManager
+	refreshTokenTTL time.Duration
+	bcryptCost      int
+	maxBodyBytes    int64
 }
 
 func NewServer(deps Dependencies) *Server {
 	return &Server{
-		logger:       deps.Logger,
-		store:        deps.Store,
-		tokenManager: deps.TokenManager,
-		bcryptCost:   deps.BcryptCost,
-		maxBodyBytes: deps.MaxRequestBodyBytes,
+		logger:          deps.Logger,
+		store:           deps.Store,
+		tokenManager:    deps.TokenManager,
+		refreshTokenTTL: deps.RefreshTokenTTL,
+		bcryptCost:      deps.BcryptCost,
+		maxBodyBytes:    deps.MaxRequestBodyBytes,
 	}
 }
 
@@ -40,6 +44,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("POST /auth/register", s.handleRegister)
 	mux.HandleFunc("POST /auth/login", s.handleLogin)
+	mux.HandleFunc("POST /auth/refresh", s.handleRefresh)
+	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /projects", s.handleListProjects)

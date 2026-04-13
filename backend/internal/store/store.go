@@ -410,7 +410,18 @@ type CreateTaskInput struct {
 func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, error) {
 	const query = `
 		INSERT INTO tasks (title, description, status, priority, project_id, assignee_id, due_date, creator_id)
-		VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8)
+		SELECT $1, NULLIF($2, ''), $3, $4, p.id, $6, $7, $8
+		FROM projects p
+		WHERE p.id = $5
+		  AND (
+			p.owner_id = $8
+			OR EXISTS (
+				SELECT 1
+				FROM tasks existing
+				WHERE existing.project_id = p.id
+				  AND existing.assignee_id = $8
+			)
+		  )
 		RETURNING id, title, COALESCE(description, ''), status, priority, project_id, assignee_id, creator_id, due_date, created_at, updated_at
 	`
 	var dueDate any
@@ -430,6 +441,12 @@ func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, er
 
 	task, err := scanTask(row)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, projectErr := s.GetProject(ctx, input.ProjectID); projectErr != nil {
+				return Task{}, projectErr
+			}
+			return Task{}, ErrForbidden
+		}
 		if isInvalidTextRepresentation(err) {
 			return Task{}, ErrBadRequest
 		}
