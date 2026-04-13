@@ -165,17 +165,30 @@ func (s *Store) GetUserByID(ctx context.Context, userID string) (User, error) {
 	return user, nil
 }
 
-func (s *Store) ListAccessibleProjects(ctx context.Context, userID string) ([]Project, error) {
-	const query = `
-		SELECT DISTINCT p.id, p.name, COALESCE(p.description, ''), p.owner_id, p.created_at
-		FROM projects p
-		LEFT JOIN tasks t ON t.project_id = p.id
-		WHERE p.owner_id = $1 OR t.assignee_id = $1
-		ORDER BY p.created_at DESC
+func (s *Store) ListAccessibleProjects(ctx context.Context, userID string, limit, offset int) ([]Project, int, error) {
+	// Count accessible projects.
+	const countQuery = `
+		SELECT COUNT(*) FROM projects p
+		WHERE p.owner_id = $1
+		   OR EXISTS (SELECT 1 FROM tasks t WHERE t.project_id = p.id AND t.assignee_id = $1)
 	`
-	rows, err := s.db.QueryContext(ctx, query, userID)
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, userID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch page.
+	const query = `
+		SELECT p.id, p.name, COALESCE(p.description, ''), p.owner_id, p.created_at
+		FROM projects p
+		WHERE p.owner_id = $1
+		   OR EXISTS (SELECT 1 FROM tasks t WHERE t.project_id = p.id AND t.assignee_id = $1)
+		ORDER BY p.created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := s.db.QueryContext(ctx, query, userID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -183,12 +196,12 @@ func (s *Store) ListAccessibleProjects(ctx context.Context, userID string) ([]Pr
 	for rows.Next() {
 		var project Project
 		if err := rows.Scan(&project.ID, &project.Name, &project.Description, &project.OwnerID, &project.CreatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		projects = append(projects, project)
 	}
 
-	return projects, rows.Err()
+	return projects, total, rows.Err()
 }
 
 func (s *Store) CreateProject(ctx context.Context, ownerID, name, description string) (Project, error) {
@@ -273,29 +286,36 @@ func (s *Store) DeleteProject(ctx context.Context, projectID, ownerID string) er
 	return nil
 }
 
-func (s *Store) ListProjectTasks(ctx context.Context, projectID string, filters TaskFilters) ([]Task, error) {
-	base := `
-		SELECT id, title, COALESCE(description, ''), status, priority, project_id, assignee_id, creator_id, due_date, created_at, updated_at
-		FROM tasks
-		WHERE project_id = $1
-	`
+func (s *Store) ListProjectTasks(ctx context.Context, projectID string, filters TaskFilters, limit, offset int) ([]Task, int, error) {
+	whereClause := " WHERE project_id = $1"
 	args := []any{projectID}
 	index := 2
 	if filters.Status != "" {
-		base += fmt.Sprintf(" AND status = $%d", index)
+		whereClause += fmt.Sprintf(" AND status = $%d", index)
 		args = append(args, filters.Status)
 		index++
 	}
 	if filters.AssigneeID != "" {
-		base += fmt.Sprintf(" AND assignee_id = $%d", index)
+		whereClause += fmt.Sprintf(" AND assignee_id = $%d", index)
 		args = append(args, filters.AssigneeID)
 		index++
 	}
-	base += " ORDER BY created_at DESC"
 
-	rows, err := s.db.QueryContext(ctx, base, args...)
+	// Count matching tasks.
+	var total int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks"+whereClause, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch page.
+	pageArgs := append(args, limit, offset)
+	query := `SELECT id, title, COALESCE(description, ''), status, priority, project_id, assignee_id, creator_id, due_date, created_at, updated_at
+		FROM tasks` + whereClause +
+		fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", index, index+1)
+
+	rows, err := s.db.QueryContext(ctx, query, pageArgs...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -303,12 +323,12 @@ func (s *Store) ListProjectTasks(ctx context.Context, projectID string, filters 
 	for rows.Next() {
 		task, scanErr := scanTask(rows)
 		if scanErr != nil {
-			return nil, scanErr
+			return nil, 0, scanErr
 		}
 		tasks = append(tasks, task)
 	}
 
-	return tasks, rows.Err()
+	return tasks, total, rows.Err()
 }
 
 func (s *Store) GetProjectWithTasks(ctx context.Context, projectID string) (ProjectWithTasks, error) {
@@ -316,7 +336,7 @@ func (s *Store) GetProjectWithTasks(ctx context.Context, projectID string) (Proj
 	if err != nil {
 		return ProjectWithTasks{}, err
 	}
-	tasks, err := s.ListProjectTasks(ctx, projectID, TaskFilters{})
+	tasks, _, err := s.ListProjectTasks(ctx, projectID, TaskFilters{}, 1000, 0)
 	if err != nil {
 		return ProjectWithTasks{}, err
 	}
@@ -640,4 +660,81 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+
+type AssigneeCount struct {
+	UserID string
+	Name   string
+	Count  int
+}
+
+type ProjectStats struct {
+	StatusCounts   map[string]int
+	AssigneeCounts []AssigneeCount
+}
+
+func (s *Store) GetProjectStats(ctx context.Context, projectID, userID string) (ProjectStats, error) {
+	// Verify access (reuses existing TOCTOU-safe access check).
+	allowed, err := s.CanAccessProject(ctx, projectID, userID)
+	if err != nil {
+		return ProjectStats{}, err
+	}
+	if !allowed {
+		if _, err := s.GetProject(ctx, projectID); err != nil {
+			return ProjectStats{}, err // ErrNotFound or ErrBadRequest
+		}
+		return ProjectStats{}, ErrForbidden
+	}
+
+	// Task counts grouped by status.
+	const statusQuery = `SELECT status, COUNT(*) FROM tasks WHERE project_id = $1 GROUP BY status`
+	rows, err := s.db.QueryContext(ctx, statusQuery, projectID)
+	if err != nil {
+		return ProjectStats{}, err
+	}
+	defer rows.Close()
+
+	statusCounts := map[string]int{"todo": 0, "in_progress": 0, "done": 0}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return ProjectStats{}, err
+		}
+		statusCounts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return ProjectStats{}, err
+	}
+
+	// Task counts grouped by assignee (only assigned tasks).
+	const assigneeQuery = `
+		SELECT u.id, u.name, COUNT(*)
+		FROM tasks t
+		JOIN users u ON u.id = t.assignee_id
+		WHERE t.project_id = $1 AND t.assignee_id IS NOT NULL
+		GROUP BY u.id, u.name
+		ORDER BY COUNT(*) DESC, u.name ASC
+	`
+	arows, err := s.db.QueryContext(ctx, assigneeQuery, projectID)
+	if err != nil {
+		return ProjectStats{}, err
+	}
+	defer arows.Close()
+
+	assigneeCounts := []AssigneeCount{}
+	for arows.Next() {
+		var ac AssigneeCount
+		if err := arows.Scan(&ac.UserID, &ac.Name, &ac.Count); err != nil {
+			return ProjectStats{}, err
+		}
+		assigneeCounts = append(assigneeCounts, ac)
+	}
+	if err := arows.Err(); err != nil {
+		return ProjectStats{}, err
+	}
+
+	return ProjectStats{StatusCounts: statusCounts, AssigneeCounts: assigneeCounts}, nil
 }

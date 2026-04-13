@@ -2,6 +2,7 @@ import { useApi } from "../../../app/auth";
 import { deleteTask, updateTask } from "../../../lib/services/tasks";
 import { getErrorMessage } from "../../../lib/utils";
 import { Task, TaskStatus } from "../../../lib/types";
+import { useShallow } from "zustand/react/shallow";
 import { useProjectDetailStore } from "../store";
 
 export function useProjectDetailTaskController(
@@ -19,17 +20,19 @@ export function useProjectDetailTaskController(
     applyOptimisticStatus,
     replaceTask,
     closeModal
-  } = useProjectDetailStore((state) => ({
-    tasks: state.tasks,
-    allTasks: state.allTasks,
-    setDeletingTaskId: state.setDeletingTaskId,
-    setTaskError: state.setTaskError,
-    removeTask: state.removeTask,
-    setStatusSavingId: state.setStatusSavingId,
-    applyOptimisticStatus: state.applyOptimisticStatus,
-    replaceTask: state.replaceTask,
-    closeModal: state.closeModal
-  }));
+  } = useProjectDetailStore(
+    useShallow((state) => ({
+      tasks: state.tasks,
+      allTasks: state.allTasks,
+      setDeletingTaskId: state.setDeletingTaskId,
+      setTaskError: state.setTaskError,
+      removeTask: state.removeTask,
+      setStatusSavingId: state.setStatusSavingId,
+      applyOptimisticStatus: state.applyOptimisticStatus,
+      replaceTask: state.replaceTask,
+      closeModal: state.closeModal
+    }))
+  );
 
   async function handleDeleteTask(taskId: string) {
     setDeletingTaskId(taskId);

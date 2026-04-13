@@ -39,3 +39,14 @@ export type ApiErrorShape = {
   error?: string;
   fields?: Record<string, string>;
 };
+
+export type AssigneeCount = {
+  user_id: string;
+  name: string;
+  count: number;
+};
+
+export type ProjectStats = {
+  status_counts: Record<string, number>;
+  assignee_counts: AssigneeCount[];
+};

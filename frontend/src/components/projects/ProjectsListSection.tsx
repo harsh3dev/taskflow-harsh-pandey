@@ -21,7 +21,7 @@ export function ProjectsListSection({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Accessible projects</h2>
-          <p className="text-sm text-[var(--ink-soft)]">
+          <p className="text-sm text-muted-foreground">
             Your owned projects and work where you are assigned.
           </p>
         </div>
@@ -30,7 +30,7 @@ export function ProjectsListSection({
         </Button>
       </div>
 
-      {loading ? <div className="py-8 text-[var(--ink-soft)]">Loading projects...</div> : null}
+      {loading ? <div className="py-8 text-muted-foreground">Loading projects...</div> : null}
 
       {!loading && projects.length === 0 ? <ProjectsEmptyState /> : null}
 

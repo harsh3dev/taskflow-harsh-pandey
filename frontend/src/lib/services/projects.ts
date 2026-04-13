@@ -1,5 +1,5 @@
 import { ApiRequest } from "../request";
-import { Project, Task } from "../types";
+import { Project, ProjectStats, Task } from "../types";
 
 export function listProjects(request: ApiRequest): Promise<{ projects: Project[] }> {
   return request<{ projects: Project[] }>("/projects");
@@ -20,4 +20,11 @@ export function getProject(
   projectId: string
 ): Promise<{ project: Project; tasks: Task[] }> {
   return request<{ project: Project; tasks: Task[] }>(`/projects/${projectId}`);
+}
+
+export function getProjectStats(
+  request: ApiRequest,
+  projectId: string
+): Promise<ProjectStats> {
+  return request<ProjectStats>(`/projects/${projectId}/stats`);
 }

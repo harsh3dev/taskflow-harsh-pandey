@@ -60,3 +60,14 @@ func tasksFromStore(tasks []store.Task) []Task {
 	}
 	return result
 }
+
+func projectStatsFromStore(s store.ProjectStats) ProjectStats {
+	counts := make([]AssigneeCount, 0, len(s.AssigneeCounts))
+	for _, ac := range s.AssigneeCounts {
+		counts = append(counts, AssigneeCount{UserID: ac.UserID, Name: ac.Name, Count: ac.Count})
+	}
+	return ProjectStats{
+		StatusCounts:   s.StatusCounts,
+		AssigneeCounts: counts,
+	}
+}

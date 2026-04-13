@@ -10,7 +10,7 @@ import (
 )
 
 type TaskService struct {
-	store *store.Store
+	repo taskStore
 }
 
 type OptionalString struct {
@@ -40,8 +40,8 @@ type ValidatedTaskInput struct {
 	UpdateInput store.UpdateTaskInput
 }
 
-func NewTaskService(store *store.Store) *TaskService {
-	return &TaskService{store: store}
+func NewTaskService(repo taskStore) *TaskService {
+	return &TaskService{repo: repo}
 }
 
 func (s *TaskService) CreateTask(ctx context.Context, projectID, actorID string, input TaskCreateInput) (Task, map[string]string, error) {
@@ -57,7 +57,7 @@ func (s *TaskService) CreateTask(ctx context.Context, projectID, actorID string,
 	createInput.ProjectID = projectID
 	createInput.CreatorID = actorID
 
-	task, err := s.store.CreateTask(ctx, createInput)
+	task, err := s.repo.CreateTask(ctx, createInput)
 	if err != nil {
 		return Task{}, nil, err
 	}
@@ -73,7 +73,7 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID, actorID string, in
 		return Task{}, fields, nil
 	}
 
-	access, err := s.store.GetTaskAccess(ctx, taskID, actorID)
+	access, err := s.repo.GetTaskAccess(ctx, taskID, actorID)
 	if err != nil {
 		return Task{}, nil, err
 	}
@@ -90,7 +90,7 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID, actorID string, in
 	updateInput.ID = taskID
 	updateInput.ActorID = actorID
 
-	task, err := s.store.UpdateTask(ctx, updateInput)
+	task, err := s.repo.UpdateTask(ctx, updateInput)
 	if err != nil {
 		return Task{}, nil, err
 	}
@@ -98,7 +98,7 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID, actorID string, in
 }
 
 func (s *TaskService) DeleteTask(ctx context.Context, taskID, actorID string) error {
-	return s.store.DeleteTask(ctx, taskID, actorID)
+	return s.repo.DeleteTask(ctx, taskID, actorID)
 }
 
 func (s *TaskService) validateTaskInput(ctx context.Context, req TaskCreateInput, requireTitle bool) (map[string]string, ValidatedTaskInput, error) {
@@ -169,7 +169,7 @@ func (s *TaskService) validateAssigneeID(ctx context.Context, assigneeID Optiona
 	}
 	trimmed := &trimmedValue
 
-	_, err := s.store.GetUserByID(ctx, *trimmed)
+	_, err := s.repo.GetUserByID(ctx, *trimmed)
 	switch {
 	case err == nil:
 		return trimmed, "", nil

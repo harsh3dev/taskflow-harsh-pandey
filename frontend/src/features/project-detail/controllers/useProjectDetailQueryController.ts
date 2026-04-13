@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useApi } from "../../../app/auth";
 import { getProject } from "../../../lib/services/projects";
 import { listProjectTasks } from "../../../lib/services/tasks";
@@ -19,18 +20,20 @@ export function useProjectDetailQueryController(projectId: string) {
     setLoadingTasks,
     setProjectError,
     setTaskError
-  } = useProjectDetailStore((state) => ({
-    project: state.project,
-    statusFilter: state.statusFilter,
-    assigneeFilter: state.assigneeFilter,
-    resetForProject: state.resetForProject,
-    setShellData: state.setShellData,
-    setTasks: state.setTasks,
-    setLoadingProject: state.setLoadingProject,
-    setLoadingTasks: state.setLoadingTasks,
-    setProjectError: state.setProjectError,
-    setTaskError: state.setTaskError
-  }));
+  } = useProjectDetailStore(
+    useShallow((state) => ({
+      project: state.project,
+      statusFilter: state.statusFilter,
+      assigneeFilter: state.assigneeFilter,
+      resetForProject: state.resetForProject,
+      setShellData: state.setShellData,
+      setTasks: state.setTasks,
+      setLoadingProject: state.setLoadingProject,
+      setLoadingTasks: state.setLoadingTasks,
+      setProjectError: state.setProjectError,
+      setTaskError: state.setTaskError
+    }))
+  );
 
   async function loadProjectShell() {
     setLoadingProject(true);

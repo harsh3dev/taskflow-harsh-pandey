@@ -56,6 +56,7 @@ func (s *Server) Routes() http.Handler {
 	protected.HandleFunc("DELETE /projects/{id}", s.handleDeleteProject)
 	protected.HandleFunc("GET /projects/{id}/tasks", s.handleListProjectTasks)
 	protected.HandleFunc("POST /projects/{id}/tasks", s.handleCreateTask)
+	protected.HandleFunc("GET /projects/{id}/stats", s.handleGetProjectStats)
 	protected.HandleFunc("GET /users", s.handleListUsers)
 	protected.HandleFunc("PATCH /tasks/{id}", s.handleUpdateTask)
 	protected.HandleFunc("DELETE /tasks/{id}", s.handleDeleteTask)

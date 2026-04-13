@@ -1,0 +1,18 @@
+FROM golang:1.23-alpine
+
+# Install air for hot reload — pin to a version compatible with Go 1.22.
+RUN go install github.com/air-verse/air@v1.61.7
+
+WORKDIR /app
+
+# Pre-download dependencies so the module cache is warm before the source
+# volume is mounted.  The cache is stored in a named volume so it persists
+# across container restarts.
+COPY go.mod go.sum ./
+RUN go mod download
+
+EXPOSE 8080
+
+# Source is mounted at /app by docker-compose.override.yml.
+# air watches for .go file changes and recompiles automatically.
+CMD ["air"]

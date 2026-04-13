@@ -1,0 +1,58 @@
+# Automatically merged with docker-compose.yml when you run `docker compose up`.
+# Adds the backend and frontend with hot reload for local development.
+#
+# Backend: `air` watches Go source and recompiles on every save.
+# Frontend: Vite dev server provides HMR — changes appear in the browser instantly.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: taskflow-backend-dev
+    environment:
+      DATABASE_URL:      postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB}?sslmode=disable
+      BACKEND_PORT:      ${BACKEND_PORT:-8080}
+      APP_ENV:           ${APP_ENV:-development}
+      JWT_SIGNING_KEYS:  ${JWT_SIGNING_KEYS}
+      JWT_ACTIVE_KEY_ID: ${JWT_ACTIVE_KEY_ID}
+      JWT_ISSUER:        ${JWT_ISSUER:-taskflow}
+      JWT_AUDIENCE:      ${JWT_AUDIENCE:-taskflow-api}
+      ACCESS_TOKEN_TTL:  ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-720h}
+      BCRYPT_COST:       ${BCRYPT_COST:-12}
+    volumes:
+      # Mount source for live reload; exclude the compiled tmp dir.
+      - ./backend:/app
+      # Named volumes preserve the module and build caches across restarts.
+      - go_modules:/root/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: taskflow-frontend-dev
+    environment:
+      # Tells the Vite proxy where to forward /api/* requests.
+      BACKEND_URL: http://backend:8080
+    volumes:
+      # Mount source for HMR; preserve node_modules inside the container.
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  go_modules:
+  go_build_cache:
+  frontend_node_modules:

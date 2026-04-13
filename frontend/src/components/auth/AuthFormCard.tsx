@@ -41,7 +41,7 @@ export function AuthFormCard({
   return (
     <Card className="mx-auto w-full max-w-[540px] p-2 sm:p-4">
       <CardHeader>
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-strong)]">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
           {copy.eyebrow}
         </p>
         <CardTitle>{copy.heading}</CardTitle>
@@ -107,9 +107,9 @@ export function AuthFormCard({
           </Button>
         </form>
 
-        <p className="text-sm text-[var(--ink-soft)]">
+        <p className="text-sm text-muted-foreground">
           {copy.swapLead}
-          <Link className="ml-1 font-bold text-[var(--accent-strong)]" to={copy.swapHref}>
+          <Link className="ml-1 font-bold text-primary" to={copy.swapHref}>
             {copy.swapLabel}
           </Link>
         </p>

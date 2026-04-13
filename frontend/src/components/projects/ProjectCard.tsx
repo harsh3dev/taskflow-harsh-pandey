@@ -13,7 +13,7 @@ export function ProjectCard({ project, currentUserId }: ProjectCardProps) {
   const isOwner = project.owner_id === currentUserId;
 
   return (
-    <Card>
+    <Card className="group transition-shadow hover:shadow-md">
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <Badge variant="secondary">{isOwner ? "Owner" : "Contributor"}</Badge>
@@ -21,15 +21,16 @@ export function ProjectCard({ project, currentUserId }: ProjectCardProps) {
         </div>
         <div className="flex flex-col gap-2">
           <h2 className="m-0 text-xl font-semibold tracking-tight">{project.name}</h2>
-          <p className="text-sm text-[var(--ink-soft)]">
+          <p className="line-clamp-2 text-sm text-muted-foreground">
             {project.description || "No description yet. Add one when the project scope firms up."}
           </p>
         </div>
         <Link
-          className="inline-flex self-start rounded-full bg-[var(--panel)] px-[1.15rem] py-[0.85rem] font-bold text-[#f9f4ec] transition-transform duration-200 hover:-translate-y-px"
+          className="inline-flex items-center gap-2 self-start rounded-full bg-primary px-[1.15rem] py-[0.85rem] font-bold text-primary-foreground transition-transform duration-200 hover:-translate-y-px"
           to={`/projects/${project.id}`}
         >
           Open project
+          <span className="inline-block transition-transform duration-200 group-hover:translate-x-1">→</span>
         </Link>
       </CardContent>
     </Card>

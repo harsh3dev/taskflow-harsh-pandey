@@ -17,12 +17,12 @@ export function FormMessage({
   className,
   ...props
 }: HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn("text-sm text-[var(--danger)]", className)} {...props} />;
+  return <p className={cn("text-sm text-destructive", className)} {...props} />;
 }
 
 export function FormDescription({
   className,
   ...props
 }: HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn("text-sm text-[var(--ink-soft)]", className)} {...props} />;
+  return <p className={cn("text-sm text-muted-foreground", className)} {...props} />;
 }

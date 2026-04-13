@@ -61,7 +61,7 @@ func main() {
 	server := httpapi.NewServer(httpapi.Dependencies{
 		Logger:              logger,
 		TokenParser:         tokenManager,
-		AuthService:         service.NewAuthService(st, tokenManager, cfg.RefreshTokenTTL, cfg.BcryptCost, nil),
+		AuthService:         service.NewAuthService(st, st, tokenManager, cfg.RefreshTokenTTL, cfg.BcryptCost, nil),
 		ProjectService:      service.NewProjectService(st),
 		TaskService:         service.NewTaskService(st),
 		UserService:         service.NewUserService(st),

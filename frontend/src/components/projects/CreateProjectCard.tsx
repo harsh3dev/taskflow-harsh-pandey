@@ -57,7 +57,7 @@ export function CreateProjectCard({
             <Button disabled={creating} type="submit">
               {creating ? "Creating..." : "Create project"}
             </Button>
-            <span className="text-sm text-[var(--ink-soft)]">
+            <span className="text-sm text-muted-foreground">
               Projects are visible if you own them or have tasks in them.
             </span>
           </div>

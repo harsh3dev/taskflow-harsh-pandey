@@ -24,7 +24,8 @@ type tokenIssuer interface {
 }
 
 type AuthService struct {
-	store           *store.Store
+	users           userStore
+	sessions        sessionStore
 	tokenIssuer     tokenIssuer
 	refreshTokenTTL time.Duration
 	bcryptCost      int
@@ -53,12 +54,13 @@ type SessionMetadata struct {
 	IPAddress string
 }
 
-func NewAuthService(store *store.Store, tokenIssuer tokenIssuer, refreshTokenTTL time.Duration, bcryptCost int, clock Clock) *AuthService {
+func NewAuthService(users userStore, sessions sessionStore, tokenIssuer tokenIssuer, refreshTokenTTL time.Duration, bcryptCost int, clock Clock) *AuthService {
 	if clock == nil {
 		clock = realClock{}
 	}
 	return &AuthService{
-		store:           store,
+		users:           users,
+		sessions:        sessions,
 		tokenIssuer:     tokenIssuer,
 		refreshTokenTTL: refreshTokenTTL,
 		bcryptCost:      bcryptCost,
@@ -90,7 +92,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput, meta Se
 		return AuthSession{}, nil, err
 	}
 
-	user, err := s.store.CreateUser(ctx, store.CreateUserInput{
+	user, err := s.users.CreateUser(ctx, store.CreateUserInput{
 		Name:         name,
 		Email:        email,
 		PasswordHash: hash,
@@ -121,7 +123,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput, meta SessionM
 		return AuthSession{}, fields, nil
 	}
 
-	user, err := s.store.GetUserByEmail(ctx, email)
+	user, err := s.users.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return AuthSession{}, nil, store.ErrUnauthorized
@@ -147,7 +149,7 @@ func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (AuthSess
 		return AuthSession{}, nil, err
 	}
 
-	session, err := s.store.RotateRefreshSession(ctx, store.RotateRefreshSessionInput{
+	session, err := s.sessions.RotateRefreshSession(ctx, store.RotateRefreshSessionInput{
 		TokenHash:    auth.HashRefreshToken(refreshToken),
 		NewTokenHash: nextRefreshTokenHash,
 		ExpiresAt:    s.clock.Now().Add(s.refreshTokenTTL),
@@ -158,7 +160,7 @@ func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (AuthSess
 		return AuthSession{}, nil, err
 	}
 
-	user, err := s.store.GetUserByID(ctx, session.UserID)
+	user, err := s.users.GetUserByID(ctx, session.UserID)
 	if err != nil {
 		return AuthSession{}, nil, err
 	}
@@ -180,7 +182,7 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 		return store.ErrBadRequest
 	}
 
-	err := s.store.RevokeRefreshSession(ctx, auth.HashRefreshToken(refreshToken), "user_logout")
+	err := s.sessions.RevokeRefreshSession(ctx, auth.HashRefreshToken(refreshToken), "user_logout")
 	if err != nil && errors.Is(err, store.ErrUnauthorized) {
 		return nil
 	}
@@ -193,7 +195,7 @@ func (s *AuthService) newAuthSession(ctx context.Context, user store.User, meta 
 		return AuthSession{}, err
 	}
 
-	if _, err := s.store.CreateRefreshSession(ctx, store.CreateRefreshSessionInput{
+	if _, err := s.sessions.CreateRefreshSession(ctx, store.CreateRefreshSessionInput{
 		UserID:    user.ID,
 		TokenHash: refreshTokenHash,
 		ExpiresAt: s.clock.Now().Add(s.refreshTokenTTL),

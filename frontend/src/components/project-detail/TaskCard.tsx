@@ -1,12 +1,8 @@
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent } from "../ui/card";
-import { FormField } from "../ui/form-field";
-import { Label } from "../ui/label";
-import { Select } from "../ui/select";
-import { statusOptions } from "../../lib/constants";
 import { cn } from "../../lib/utils";
-import { formatDate, labelForPriority, labelForStatus } from "../../lib/utils";
+import { formatDate, labelForPriority } from "../../lib/utils";
 import { Task, TaskStatus, User } from "../../lib/types";
 
 type TaskCardProps = {
@@ -16,94 +12,120 @@ type TaskCardProps = {
   deletingTaskId: string | null;
   statusSavingId: string | null;
   onStatusChange: (task: Task, status: TaskStatus) => void;
-  onEditTask: (task: Task) => void;
+  onCardClick: (task: Task) => void;
   onDeleteTask: (taskId: string) => void;
 };
+
+const priorityClasses: Record<string, string> = {
+  high: "border-destructive/30 bg-destructive/10 text-destructive",
+  medium: "border-border bg-muted/60 text-muted-foreground",
+  low: "border-success/30 bg-success/10 text-success"
+};
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
 
 export function TaskCard({
   task,
   currentUserId,
   userMap,
   deletingTaskId,
-  statusSavingId,
-  onStatusChange,
-  onEditTask,
-  onDeleteTask
+  onCardClick
 }: TaskCardProps) {
-  const statusChipClassName = cn(
-    "inline-flex items-center gap-[0.35rem] rounded-full px-[0.65rem] py-[0.36rem] text-[0.78rem] font-medium text-white",
-    task.status === "done" && "bg-[var(--success)]",
-    task.status === "in_progress" && "bg-[var(--warn)]",
-    task.status === "todo" && "bg-[var(--panel)]"
-  );
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: task.id,
+    data: { task }
+  });
 
-  const priorityBadgeClassName = cn(
-    task.priority === "high" && "border-[rgba(177,69,62,0.28)] bg-[rgba(177,69,62,0.12)] text-[var(--danger)]",
-    task.priority === "low" && "border-[rgba(47,124,88,0.28)] bg-[rgba(47,124,88,0.12)] text-[var(--success)]"
-  );
+  const style = transform
+    ? { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.45 : 1 }
+    : undefined;
+
+  const assignee = task.assignee_id ? userMap.get(task.assignee_id) : null;
+  const assigneeName = assignee?.name ?? (task.assignee_id === currentUserId ? "You" : null);
+  const isDeleting = deletingTaskId === task.id;
 
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <span className={statusChipClassName}>
-            {labelForStatus(task.status)}
-          </span>
-          <Badge className={priorityBadgeClassName} variant="outline">
-            {labelForPriority(task.priority)}
-          </Badge>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <h4 className="m-0 text-xl font-semibold tracking-tight">{task.title}</h4>
-          <p className="text-sm text-[var(--ink-soft)]">
-            {task.description || "No task description yet."}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-[0.55rem] text-[0.88rem] text-[var(--ink-soft)]">
-          <span>
-            Assignee:{" "}
-            {task.assignee_id
-              ? userMap.get(task.assignee_id)?.name ||
-                (task.assignee_id === currentUserId ? "You" : task.assignee_id)
-              : "Unassigned"}
-          </span>
-          <span>Due: {task.due_date ? formatDate(task.due_date) : "No date"}</span>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <FormField>
-            <Label htmlFor={`status-${task.id}`}>Move task</Label>
-            <Select
-              id={`status-${task.id}`}
-              disabled={statusSavingId === task.id}
-              value={task.status}
-              onChange={(event) => onStatusChange(task, event.target.value as TaskStatus)}
+    <div ref={setNodeRef} style={style}>
+      <Card
+        className={cn(
+          "cursor-pointer transition-shadow hover:shadow-md",
+          isDeleting && "opacity-40 pointer-events-none"
+        )}
+        onClick={() => onCardClick(task)}
+      >
+        <CardContent className="flex flex-col gap-2 p-3">
+          {/* Top row: drag handle + priority */}
+          <div className="flex items-center justify-between gap-2">
+            <button
+              {...listeners}
+              {...attributes}
+              aria-label="Drag task"
+              className="cursor-grab touch-none rounded p-0.5 text-muted-foreground/50 hover:bg-muted active:cursor-grabbing"
+              type="button"
+              onClick={(e) => e.stopPropagation()}
             >
-              {statusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-        </div>
+              <DragIcon />
+            </button>
+            <span
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[0.68rem] font-medium",
+                priorityClasses[task.priority] ?? priorityClasses.medium
+              )}
+            >
+              {labelForPriority(task.priority)}
+            </span>
+          </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Button variant="outline" onClick={() => onEditTask(task)} type="button">
-            Edit
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={deletingTaskId === task.id}
-            onClick={() => onDeleteTask(task.id)}
-            type="button"
-          >
-            {deletingTaskId === task.id ? "Deleting..." : "Delete"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+          {/* Title */}
+          <p className="line-clamp-2 text-sm font-medium leading-snug">{task.title}</p>
+
+          {/* Bottom meta */}
+          <div className="flex items-center gap-2 text-[0.72rem] text-muted-foreground">
+            {assigneeName ? (
+              <span
+                className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/15 text-[0.55rem] font-bold text-primary"
+                title={assigneeName}
+              >
+                {initials(assigneeName)}
+              </span>
+            ) : (
+              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-muted text-[0.55rem] text-muted-foreground">
+                —
+              </span>
+            )}
+            {task.due_date ? (
+              <span className="truncate">Due {formatDate(task.due_date)}</span>
+            ) : (
+              <span className="text-muted-foreground/40">No due date</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function DragIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      {[0, 1, 2].map((col) =>
+        [0, 1].map((row) => (
+          <circle key={`${col}-${row}`} cx={2 + col * 4} cy={3 + row * 6} r="1.25" />
+        ))
+      )}
+    </svg>
   );
 }

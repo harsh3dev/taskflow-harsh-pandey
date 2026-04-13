@@ -125,3 +125,77 @@ func TestRoutesRejectOversizedJSONBodies(t *testing.T) {
 		t.Fatalf("unexpected response body: %s", rec.Body.String())
 	}
 }
+
+func TestHealthEndpointReturnsOK(t *testing.T) {
+	server := newTestServer(t, 1024)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ok"`)) {
+		t.Fatalf("expected ok body, got: %s", rec.Body.String())
+	}
+}
+
+func TestLoginEndpointAcceptsValidPayload(t *testing.T) {
+	server := newTestServer(t, 1024)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/login",
+		bytes.NewBufferString(`{"email":"test@example.com","password":"password123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+
+	// Stub returns empty AuthSession with no error → 200.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAllProtectedMethodsRequireAuth(t *testing.T) {
+	server := newTestServer(t, 1024)
+	handler := server.Routes()
+
+	protectedEndpoints := []struct {
+		method      string
+		path        string
+		contentType string
+		body        string
+	}{
+		{http.MethodGet, "/projects", "", ""},
+		{http.MethodPost, "/projects", "application/json", `{}`},
+		{http.MethodGet, "/projects/some-id", "", ""},
+		{http.MethodPatch, "/projects/some-id", "application/json", `{}`},
+		{http.MethodDelete, "/projects/some-id", "", ""},
+		{http.MethodGet, "/projects/some-id/tasks", "", ""},
+		{http.MethodPost, "/projects/some-id/tasks", "application/json", `{}`},
+		{http.MethodGet, "/projects/some-id/stats", "", ""},
+		{http.MethodPatch, "/tasks/some-id", "application/json", `{}`},
+		{http.MethodDelete, "/tasks/some-id", "", ""},
+		{http.MethodGet, "/users", "", ""},
+	}
+
+	for _, ep := range protectedEndpoints {
+		t.Run(ep.method+" "+ep.path, func(t *testing.T) {
+			var bodyReader *bytes.Reader
+			if ep.body != "" {
+				bodyReader = bytes.NewReader([]byte(ep.body))
+			} else {
+				bodyReader = bytes.NewReader(nil)
+			}
+			req := httptest.NewRequest(ep.method, ep.path, bodyReader)
+			if ep.contentType != "" {
+				req.Header.Set("Content-Type", ep.contentType)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401 for %s %s, got %d: %s", ep.method, ep.path, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

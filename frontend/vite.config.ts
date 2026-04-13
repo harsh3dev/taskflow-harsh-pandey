@@ -12,9 +12,13 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // host: true binds to 0.0.0.0 so the dev server is reachable inside Docker.
+    host: true,
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        // In Docker the backend is reached by service name; locally by localhost.
+        // Set BACKEND_URL=http://backend:8080 in docker-compose.override.yml.
+        target: process.env.BACKEND_URL ?? "http://localhost:8080",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, "")
       }

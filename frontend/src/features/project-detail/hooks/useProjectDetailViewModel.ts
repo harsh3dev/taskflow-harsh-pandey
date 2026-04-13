@@ -1,43 +1,98 @@
+import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { statusOptions } from "../../../lib/constants";
 import { useProjectDetailStore } from "../store";
 
 export function useProjectDetailViewModel() {
-  return useProjectDetailStore((state) => {
-    const assigneeOptions = Array.from(
-      new Set(
-        state.allTasks
-          .map((task) => task.assignee_id)
-          .filter((value): value is string => Boolean(value))
-      )
-    );
+  const {
+    users,
+    project,
+    allTasks,
+    tasks,
+    loadingProject,
+    loadingTasks,
+    projectError,
+    taskError,
+    statusFilter,
+    assigneeFilter,
+    modalState,
+    deletingTaskId,
+    statusSavingId,
+    setStatusFilter,
+    setAssigneeFilter,
+    openCreateModal,
+    openEditModal,
+    closeModal
+  } = useProjectDetailStore(
+    useShallow((s) => ({
+      users: s.users,
+      project: s.project,
+      allTasks: s.allTasks,
+      tasks: s.tasks,
+      loadingProject: s.loadingProject,
+      loadingTasks: s.loadingTasks,
+      projectError: s.projectError,
+      taskError: s.taskError,
+      statusFilter: s.statusFilter,
+      assigneeFilter: s.assigneeFilter,
+      modalState: s.modalState,
+      deletingTaskId: s.deletingTaskId,
+      statusSavingId: s.statusSavingId,
+      setStatusFilter: s.setStatusFilter,
+      setAssigneeFilter: s.setAssigneeFilter,
+      openCreateModal: s.openCreateModal,
+      openEditModal: s.openEditModal,
+      closeModal: s.closeModal
+    }))
+  );
 
-    const visibleColumns = statusOptions.map((column) => ({
-      ...column,
-      tasks: state.tasks.filter((task) => task.status === column.value)
-    }));
+  const assigneeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allTasks
+            .map((task) => task.assignee_id)
+            .filter((value): value is string => Boolean(value))
+        )
+      ),
+    [allTasks]
+  );
 
-    return {
-      users: state.users,
-      project: state.project,
-      allTasks: state.allTasks,
-      tasks: state.tasks,
-      loadingProject: state.loadingProject,
-      loadingTasks: state.loadingTasks,
-      projectError: state.projectError,
-      taskError: state.taskError,
-      statusFilter: state.statusFilter,
-      assigneeFilter: state.assigneeFilter,
-      modalState: state.modalState,
-      deletingTaskId: state.deletingTaskId,
-      statusSavingId: state.statusSavingId,
-      visibleColumns,
-      assigneeOptions,
-      userMap: new Map(state.users.map((entry) => [entry.id, entry])),
-      setStatusFilter: state.setStatusFilter,
-      setAssigneeFilter: state.setAssigneeFilter,
-      openCreateModal: state.openCreateModal,
-      openEditModal: state.openEditModal,
-      closeModal: state.closeModal
-    };
-  });
+  const visibleColumns = useMemo(
+    () =>
+      statusOptions.map((column) => ({
+        ...column,
+        tasks: tasks.filter((task) => task.status === column.value)
+      })),
+    [tasks]
+  );
+
+  const userMap = useMemo(
+    () => new Map(users.map((entry) => [entry.id, entry])),
+    [users]
+  );
+
+  return {
+    users,
+    project,
+    allTasks,
+    tasks,
+    loadingProject,
+    loadingTasks,
+    projectError,
+    taskError,
+    statusFilter,
+    assigneeFilter,
+    modalState,
+    deletingTaskId,
+    statusSavingId,
+    visibleColumns,
+    assigneeOptions,
+    userMap,
+    setStatusFilter,
+    setAssigneeFilter,
+    openCreateModal,
+    openEditModal,
+    closeModal
+  };
 }

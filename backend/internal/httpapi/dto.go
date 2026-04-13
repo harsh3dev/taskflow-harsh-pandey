@@ -49,6 +49,23 @@ type projectDetailResponse struct {
 	Tasks   []taskResponse  `json:"tasks"`
 }
 
+type paginationResponse struct {
+	Page  int `json:"page"`
+	Limit int `json:"limit"`
+	Total int `json:"total"`
+}
+
+type assigneeCountResponse struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	Count  int    `json:"count"`
+}
+
+type projectStatsResponse struct {
+	StatusCounts   map[string]int          `json:"status_counts"`
+	AssigneeCounts []assigneeCountResponse  `json:"assignee_counts"`
+}
+
 func newAuthResponse(session service.AuthSession) authResponse {
 	return authResponse{
 		Token:            session.Tokens.AccessToken,
@@ -123,5 +140,20 @@ func newProjectDetailResponse(project service.ProjectWithTasks) projectDetailRes
 	return projectDetailResponse{
 		Project: newProjectResponse(project.Project),
 		Tasks:   newTasksResponse(project.Tasks),
+	}
+}
+
+func newPaginationResponse(p service.Pagination) paginationResponse {
+	return paginationResponse{Page: p.Page, Limit: p.Limit, Total: p.Total}
+}
+
+func newProjectStatsResponse(stats service.ProjectStats) projectStatsResponse {
+	counts := make([]assigneeCountResponse, 0, len(stats.AssigneeCounts))
+	for _, ac := range stats.AssigneeCounts {
+		counts = append(counts, assigneeCountResponse{UserID: ac.UserID, Name: ac.Name, Count: ac.Count})
+	}
+	return projectStatsResponse{
+		StatusCounts:   stats.StatusCounts,
+		AssigneeCounts: counts,
 	}
 }

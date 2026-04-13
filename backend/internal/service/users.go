@@ -2,20 +2,18 @@ package service
 
 import (
 	"context"
-
-	"github.com/harshpn/taskflow/internal/store"
 )
 
 type UserService struct {
-	store *store.Store
+	repo userListStore
 }
 
-func NewUserService(store *store.Store) *UserService {
-	return &UserService{store: store}
+func NewUserService(repo userListStore) *UserService {
+	return &UserService{repo: repo}
 }
 
 func (s *UserService) ListUsers(ctx context.Context, search string) ([]User, error) {
-	users, err := s.store.ListUsers(ctx, search)
+	users, err := s.repo.ListUsers(ctx, search)
 	if err != nil {
 		return nil, err
 	}

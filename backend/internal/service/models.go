@@ -47,3 +47,21 @@ type AuthSession struct {
 	User   User
 	Tokens AuthTokens
 }
+
+// Pagination is returned alongside paginated list results.
+type Pagination struct {
+	Page  int `json:"page"`
+	Limit int `json:"limit"`
+	Total int `json:"total"`
+}
+
+type AssigneeCount struct {
+	UserID string
+	Name   string
+	Count  int
+}
+
+type ProjectStats struct {
+	StatusCounts   map[string]int
+	AssigneeCounts []AssigneeCount
+}

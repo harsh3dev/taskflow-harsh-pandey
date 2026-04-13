@@ -14,12 +14,13 @@ type authService interface {
 }
 
 type projectService interface {
-	ListAccessibleProjects(ctx context.Context, userID string) ([]service.Project, error)
+	ListAccessibleProjects(ctx context.Context, userID string, page, limit int) ([]service.Project, service.Pagination, error)
 	CreateProject(ctx context.Context, userID, name, description string) (service.Project, map[string]string, error)
 	GetProject(ctx context.Context, projectID, userID string) (service.ProjectWithTasks, error)
 	UpdateProject(ctx context.Context, projectID, userID, name, description string) (service.Project, error)
 	DeleteProject(ctx context.Context, projectID, userID string) error
-	ListProjectTasks(ctx context.Context, projectID, userID string, filters service.TaskFilters) ([]service.Task, error)
+	ListProjectTasks(ctx context.Context, projectID, userID string, filters service.TaskFilters, page, limit int) ([]service.Task, service.Pagination, error)
+	GetProjectStats(ctx context.Context, projectID, userID string) (service.ProjectStats, error)
 }
 
 type taskService interface {

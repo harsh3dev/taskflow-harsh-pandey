@@ -1,0 +1,14 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Pre-install dependencies so the node_modules named volume is populated
+# before the source volume is mounted.
+COPY package*.json ./
+RUN npm install
+
+EXPOSE 3000
+
+# Source is mounted at /app by docker-compose.override.yml.
+# Vite dev server provides HMR — changes in /frontend/src appear instantly.
+CMD ["npm", "run", "dev"]

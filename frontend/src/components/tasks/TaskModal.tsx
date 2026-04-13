@@ -21,6 +21,7 @@ type TaskModalProps = {
   users: User[];
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: () => void;
 };
 
 export function TaskModal({
@@ -29,7 +30,8 @@ export function TaskModal({
   task,
   users,
   onClose,
-  onSaved
+  onSaved,
+  onDelete
 }: TaskModalProps) {
   const api = useApi();
   const { user } = useAuth();
@@ -94,13 +96,13 @@ export function TaskModal({
 
   return (
     <div
-      className="fixed inset-0 z-20 grid place-items-center bg-[rgba(11,27,23,0.44)] p-4"
+      className="fixed inset-0 z-20 grid place-items-center bg-black/50 p-4"
       role="presentation"
     >
-      <Card className="max-h-[calc(100vh-2rem)] w-full max-w-[680px] overflow-auto bg-[var(--surface-strong)] p-[1.4rem]">
-        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <Card className="max-h-[calc(100vh-2rem)] w-full max-w-[680px] overflow-auto rounded-xl shadow-2xl sm:rounded-2xl">
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-strong)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
               {mode === "create" ? "Create task" : "Edit task"}
             </p>
             <CardTitle>{mode === "create" ? "Add a new task" : "Update task details"}</CardTitle>
@@ -108,9 +110,16 @@ export function TaskModal({
               Pick an assignee from the backend user directory, or leave the task unassigned.
             </CardDescription>
           </div>
-          <Button variant="ghost" onClick={onClose} type="button">
-            Close
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {mode === "edit" && onDelete ? (
+              <Button variant="destructive" size="sm" onClick={onDelete} type="button">
+                Delete
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" onClick={onClose} type="button">
+              Close
+            </Button>
+          </div>
         </CardHeader>
 
         <CardContent>

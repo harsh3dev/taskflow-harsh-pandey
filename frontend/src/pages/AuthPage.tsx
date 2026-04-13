@@ -58,7 +58,11 @@ export function AuthPage({ mode }: AuthPageProps) {
     } catch (error) {
       if (error instanceof ApiError) {
         setFieldErrors(error.fields ?? {});
-        setErrorMessage(error.message);
+        if (mode === "login" && error.status === 401) {
+          setErrorMessage("Invalid email or password. Please check your credentials and try again.");
+        } else {
+          setErrorMessage(error.message);
+        }
       } else {
         setErrorMessage("Unable to reach the API.");
       }
