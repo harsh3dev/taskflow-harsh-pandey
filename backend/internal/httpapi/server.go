@@ -51,11 +51,14 @@ func (s *Server) Routes() http.Handler {
 	protected.HandleFunc("DELETE /projects/{id}", s.handleDeleteProject)
 	protected.HandleFunc("GET /projects/{id}/tasks", s.handleListProjectTasks)
 	protected.HandleFunc("POST /projects/{id}/tasks", s.handleCreateTask)
+	protected.HandleFunc("GET /users", s.handleListUsers)
 	protected.HandleFunc("PATCH /tasks/{id}", s.handleUpdateTask)
 	protected.HandleFunc("DELETE /tasks/{id}", s.handleDeleteTask)
 
 	mux.Handle("/projects", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
 	mux.Handle("/projects/", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
+	mux.Handle("/users", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
+	mux.Handle("/users/", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
 	mux.Handle("/tasks/", auth.Middleware(s.tokenManager, s.writeUnauthorized)(protected))
 
 	return s.withLogging(s.enforceJSON(mux))
@@ -183,6 +186,21 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+}
+
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	if _, ok := auth.UserFromContext(r.Context()); !ok {
+		s.writeUnauthorized(w, "missing authenticated user")
+		return
+	}
+
+	users, err := s.store.ListUsers(r.Context(), r.URL.Query().Get("q"))
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
 type projectRequest struct {
@@ -340,6 +358,14 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fields, parsedDueDate := validateTaskRequest(req, true)
+	assigneeID, assigneeFieldError, err := s.validateAssigneeID(r.Context(), req.AssigneeID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	if assigneeFieldError != "" {
+		fields["assignee_id"] = assigneeFieldError
+	}
 	if len(fields) > 0 {
 		writeValidationError(w, fields)
 		return
@@ -351,7 +377,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Description: strings.TrimSpace(req.Description),
 		Status:      defaultString(req.Status, "todo"),
 		Priority:    defaultString(req.Priority, "medium"),
-		AssigneeID:  trimStringPointer(req.AssigneeID),
+		AssigneeID:  assigneeID,
 		DueDate:     parsedDueDate,
 		CreatorID:   user.UserID,
 	})
@@ -370,6 +396,14 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fields, parsedDueDate := validateTaskRequest(req, false)
+	assigneeID, assigneeFieldError, err := s.validateAssigneeID(r.Context(), req.AssigneeID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	if assigneeFieldError != "" {
+		fields["assignee_id"] = assigneeFieldError
+	}
 	if len(fields) > 0 {
 		writeValidationError(w, fields)
 		return
@@ -381,7 +415,7 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		Description: trimStringPointer(stringPointerOrNil(req.Description)),
 		Status:      trimStringPointer(stringPointerOrNil(req.Status)),
 		Priority:    trimStringPointer(stringPointerOrNil(req.Priority)),
-		AssigneeID:  trimStringPointer(req.AssigneeID),
+		AssigneeID:  assigneeID,
 		DueDate:     parsedDueDate,
 	}
 
@@ -427,6 +461,25 @@ func (s *Server) canAccessProject(ctx context.Context, userID string, project st
 		}
 	}
 	return false
+}
+
+func (s *Server) validateAssigneeID(ctx context.Context, assigneeID *string) (*string, string, error) {
+	trimmed := trimStringPointer(assigneeID)
+	if trimmed == nil {
+		return nil, "", nil
+	}
+
+	_, err := s.store.GetUserByID(ctx, *trimmed)
+	switch {
+	case err == nil:
+		return trimmed, "", nil
+	case errors.Is(err, store.ErrBadRequest):
+		return nil, "must be a valid user id", nil
+	case errors.Is(err, store.ErrNotFound):
+		return nil, "must reference an existing user", nil
+	default:
+		return nil, "", err
+	}
 }
 
 func (s *Server) enforceJSON(next http.Handler) http.Handler {

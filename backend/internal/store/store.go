@@ -67,6 +67,44 @@ type CreateUserInput struct {
 	PasswordHash string
 }
 
+func (s *Store) ListUsers(ctx context.Context, search string) ([]User, error) {
+	base := `
+		SELECT id, name, email, '' AS password, created_at
+		FROM users
+	`
+
+	args := []any{}
+	search = strings.TrimSpace(search)
+	if search != "" {
+		base += `
+			WHERE name ILIKE $1 OR email ILIKE $1
+		`
+		args = append(args, "%"+search+"%")
+	}
+
+	base += `
+		ORDER BY name ASC, email ASC
+		LIMIT 50
+	`
+
+	rows, err := s.db.QueryContext(ctx, base, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var user User
+		if err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.Password, &user.CreatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	return users, rows.Err()
+}
+
 func (s *Store) CreateUser(ctx context.Context, input CreateUserInput) (User, error) {
 	const query = `
 		INSERT INTO users (name, email, password)
@@ -97,6 +135,27 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (User, error) 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return User{}, ErrNotFound
+		}
+		return User{}, err
+	}
+	return user, nil
+}
+
+func (s *Store) GetUserByID(ctx context.Context, userID string) (User, error) {
+	const query = `
+		SELECT id, name, email, password, created_at
+		FROM users
+		WHERE id = $1
+	`
+	var user User
+	err := s.db.QueryRowContext(ctx, query, strings.TrimSpace(userID)).
+		Scan(&user.ID, &user.Name, &user.Email, &user.Password, &user.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return User{}, ErrNotFound
+		}
+		if isInvalidTextRepresentation(err) {
+			return User{}, ErrBadRequest
 		}
 		return User{}, err
 	}
@@ -421,6 +480,11 @@ func scanTask(scanner interface {
 func isUniqueViolation(err error) bool {
 	var pqErr *pq.Error
 	return errors.As(err, &pqErr) && pqErr.Code == "23505"
+}
+
+func isInvalidTextRepresentation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "22P02"
 }
 
 func nullableString(value string) any {
