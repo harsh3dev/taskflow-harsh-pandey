@@ -89,6 +89,9 @@ func (s *Store) ListUsers(ctx context.Context, search string) ([]User, error) {
 
 	rows, err := s.db.QueryContext(ctx, base, args...)
 	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			return nil, ErrBadRequest
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -213,6 +216,9 @@ func (s *Store) GetProject(ctx context.Context, projectID string) (Project, erro
 		if errors.Is(err, sql.ErrNoRows) {
 			return Project{}, ErrNotFound
 		}
+		if isInvalidTextRepresentation(err) {
+			return Project{}, ErrBadRequest
+		}
 		return Project{}, err
 	}
 	return project, nil
@@ -237,6 +243,9 @@ func (s *Store) UpdateProject(ctx context.Context, projectID, ownerID, name, des
 			}
 			return Project{}, ErrForbidden
 		}
+		if isInvalidTextRepresentation(err) {
+			return Project{}, ErrBadRequest
+		}
 		return Project{}, err
 	}
 	return project, nil
@@ -246,6 +255,9 @@ func (s *Store) DeleteProject(ctx context.Context, projectID, ownerID string) er
 	const query = `DELETE FROM projects WHERE id = $1 AND owner_id = $2`
 	result, err := s.db.ExecContext(ctx, query, projectID, ownerID)
 	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			return ErrBadRequest
+		}
 		return err
 	}
 	rowsAffected, err := result.RowsAffected()
@@ -316,6 +328,74 @@ type TaskFilters struct {
 	AssigneeID string
 }
 
+type TaskAccess struct {
+	TaskID     string
+	ProjectID  string
+	IsOwner    bool
+	IsCreator  bool
+	IsAssignee bool
+}
+
+func (s *Store) CanAccessProject(ctx context.Context, projectID, userID string) (bool, error) {
+	const query = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM projects p
+			WHERE p.id = $1
+			  AND (
+				p.owner_id = $2
+				OR EXISTS (
+					SELECT 1
+					FROM tasks t
+					WHERE t.project_id = p.id AND t.assignee_id = $2
+				)
+			  )
+		)
+	`
+	var allowed bool
+	if err := s.db.QueryRowContext(ctx, query, projectID, userID).Scan(&allowed); err != nil {
+		if isInvalidTextRepresentation(err) {
+			return false, ErrBadRequest
+		}
+		return false, err
+	}
+	return allowed, nil
+}
+
+func (s *Store) GetTaskAccess(ctx context.Context, taskID, actorID string) (TaskAccess, error) {
+	const query = `
+		SELECT
+			t.id,
+			t.project_id,
+			(p.owner_id = $2) AS is_owner,
+			(t.creator_id = $2) AS is_creator,
+			(t.assignee_id = $2) AS is_assignee
+		FROM tasks t
+		INNER JOIN projects p ON p.id = t.project_id
+		WHERE t.id = $1
+	`
+
+	var access TaskAccess
+	err := s.db.QueryRowContext(ctx, query, taskID, actorID).Scan(
+		&access.TaskID,
+		&access.ProjectID,
+		&access.IsOwner,
+		&access.IsCreator,
+		&access.IsAssignee,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TaskAccess{}, ErrNotFound
+		}
+		if isInvalidTextRepresentation(err) {
+			return TaskAccess{}, ErrBadRequest
+		}
+		return TaskAccess{}, err
+	}
+
+	return access, nil
+}
+
 type CreateTaskInput struct {
 	ProjectID   string
 	Title       string
@@ -350,6 +430,9 @@ func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, er
 
 	task, err := scanTask(row)
 	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			return Task{}, ErrBadRequest
+		}
 		return Task{}, err
 	}
 	return task, nil
@@ -357,47 +440,83 @@ func (s *Store) CreateTask(ctx context.Context, input CreateTaskInput) (Task, er
 
 type UpdateTaskInput struct {
 	ID          string
-	Title       *string
-	Description *string
-	Status      *string
-	Priority    *string
-	AssigneeID  *string
-	DueDate     *time.Time
+	ActorID     string
+	Title       StringPatch
+	Description NullableStringPatch
+	Status      StringPatch
+	Priority    StringPatch
+	AssigneeID  NullableStringPatch
+	DueDate     NullableDatePatch
+}
+
+type StringPatch struct {
+	Set   bool
+	Value string
+}
+
+type NullableStringPatch struct {
+	Set   bool
+	Value *string
+}
+
+type NullableDatePatch struct {
+	Set   bool
+	Value *time.Time
 }
 
 func (s *Store) UpdateTask(ctx context.Context, input UpdateTaskInput) (Task, error) {
 	const query = `
-		UPDATE tasks
+		UPDATE tasks t
 		SET
-			title = COALESCE($2, title),
-			description = COALESCE($3, description),
-			status = COALESCE($4, status),
-			priority = COALESCE($5, priority),
-			assignee_id = CASE WHEN $6::uuid IS NULL THEN assignee_id ELSE $6::uuid END,
-			due_date = CASE WHEN $7::date IS NULL THEN due_date ELSE $7::date END,
+			title = CASE WHEN $2 THEN $3 ELSE t.title END,
+			description = CASE WHEN $4 THEN NULLIF($5, '') ELSE t.description END,
+			status = CASE WHEN $6 THEN $7::task_status ELSE t.status END,
+			priority = CASE WHEN $8 THEN $9::task_priority ELSE t.priority END,
+			assignee_id = CASE WHEN $10 THEN $11::uuid ELSE t.assignee_id END,
+			due_date = CASE WHEN $12 THEN $13::date ELSE t.due_date END,
 			updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, title, COALESCE(description, ''), status, priority, project_id, assignee_id, creator_id, due_date, created_at, updated_at
+		FROM projects p
+		WHERE t.project_id = p.id
+		  AND t.id = $1
+		  AND (
+			p.owner_id = $14
+			OR t.creator_id = $14
+			OR t.assignee_id = $14
+		  )
+		RETURNING t.id, t.title, COALESCE(t.description, ''), t.status, t.priority, t.project_id, t.assignee_id, t.creator_id, t.due_date, t.created_at, t.updated_at
 	`
 	var dueDate any
-	if input.DueDate != nil {
-		dueDate = input.DueDate.Format("2006-01-02")
+	if input.DueDate.Value != nil {
+		dueDate = input.DueDate.Value.Format("2006-01-02")
 	}
 	row := s.db.QueryRowContext(
 		ctx,
 		query,
 		input.ID,
-		input.Title,
-		input.Description,
-		input.Status,
-		input.Priority,
-		input.AssigneeID,
+		input.Title.Set,
+		nullableString(input.Title.Value),
+		input.Description.Set,
+		derefString(input.Description.Value),
+		input.Status.Set,
+		nullableString(input.Status.Value),
+		input.Priority.Set,
+		nullableString(input.Priority.Value),
+		input.AssigneeID.Set,
+		input.AssigneeID.Value,
+		input.DueDate.Set,
 		dueDate,
+		input.ActorID,
 	)
 	task, err := scanTask(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return Task{}, ErrNotFound
+			if _, taskErr := s.GetTask(ctx, input.ID); taskErr != nil {
+				return Task{}, taskErr
+			}
+			return Task{}, ErrForbidden
+		}
+		if isInvalidTextRepresentation(err) {
+			return Task{}, ErrBadRequest
 		}
 		return Task{}, err
 	}
@@ -415,6 +534,9 @@ func (s *Store) GetTask(ctx context.Context, taskID string) (Task, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, ErrNotFound
 		}
+		if isInvalidTextRepresentation(err) {
+			return Task{}, ErrBadRequest
+		}
 		return Task{}, err
 	}
 	return task, nil
@@ -430,6 +552,9 @@ func (s *Store) DeleteTask(ctx context.Context, taskID, actorID string) error {
 	`
 	result, err := s.db.ExecContext(ctx, query, taskID, actorID)
 	if err != nil {
+		if isInvalidTextRepresentation(err) {
+			return ErrBadRequest
+		}
 		return err
 	}
 	rowsAffected, err := result.RowsAffected()
@@ -492,4 +617,11 @@ func nullableString(value string) any {
 		return nil
 	}
 	return value
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

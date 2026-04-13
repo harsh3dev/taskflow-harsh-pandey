@@ -20,24 +20,24 @@ func UserFromContext(ctx context.Context) (AuthenticatedUser, bool) {
 	return user, ok
 }
 
-func Middleware(tokenManager TokenManager, unauthorized func(http.ResponseWriter, string)) func(http.Handler) http.Handler {
+func Middleware(tokenManager TokenManager, unauthorized func(http.ResponseWriter, *http.Request, string)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := strings.TrimSpace(r.Header.Get("Authorization"))
 			if header == "" {
-				unauthorized(w, "missing bearer token")
+				unauthorized(w, r, "missing bearer token")
 				return
 			}
 
 			const prefix = "Bearer "
 			if !strings.HasPrefix(header, prefix) {
-				unauthorized(w, "invalid authorization header")
+				unauthorized(w, r, "invalid authorization header")
 				return
 			}
 
 			claims, err := tokenManager.ParseToken(strings.TrimSpace(strings.TrimPrefix(header, prefix)))
 			if err != nil {
-				unauthorized(w, "invalid token")
+				unauthorized(w, r, "invalid token")
 				return
 			}
 

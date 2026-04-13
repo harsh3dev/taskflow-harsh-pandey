@@ -37,9 +37,9 @@ func main() {
 	}
 	defer db.Close()
 
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
+	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
+	db.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -52,16 +52,20 @@ func main() {
 	st := store.New(db)
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTTTL)
 	server := httpapi.NewServer(httpapi.Dependencies{
-		Logger:       logger,
-		Store:        st,
-		TokenManager: tokenManager,
-		BcryptCost:   cfg.BcryptCost,
+		Logger:              logger,
+		Store:               st,
+		TokenManager:        tokenManager,
+		BcryptCost:          cfg.BcryptCost,
+		MaxRequestBodyBytes: cfg.MaxRequestBodyBytes,
 	})
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           server.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       cfg.HTTPReadTimeout,
+		WriteTimeout:      cfg.HTTPWriteTimeout,
+		IdleTimeout:       cfg.HTTPIdleTimeout,
 	}
 
 	errCh := make(chan error, 1)
