@@ -31,7 +31,7 @@ TaskFlow lets users register, log in, create projects, add tasks, and assign the
 
 ---
 
-## 2. Architecture Decisions
+## 2. Architecture decisions
 
 ### Backend
 
@@ -49,42 +49,43 @@ TaskFlow lets users register, log in, create projects, add tasks, and assign the
 
 **Intentional omissions:** rate limiting, WebSocket real-time updates, and Redis caching were scoped out. The architecture makes each straightforward to add.
 
-### Email Sending Mechanism
+### Email / notification system
 
 ![alt text](image-1.png)
 
-Task assignment and field-change notifications are delivered asynchronously — the HTTP response never waits on email delivery.
+I wanted task assignment notifications to feel reliable, not just "fire and forget and hope."
 
-**Why Redis Streams.** The naive approach (`go sendEmail(...)`) silently loses notifications if the process crashes after the DB write but before the goroutine completes. Redis Streams solve this: events are written to a durable log (`taskflow:task:events`) and only removed once a consumer explicitly ACKs them, so notifications survive restarts and deploys.
+**The naive approach** (`go sendEmail(...)`) silently drops notifications if the process crashes after the DB write but before the goroutine finishes. That felt wrong to me for something users would actually notice missing.
 
-**How it works.**
-- `TaskService` is the only producer. On task create (with an assignee) or update, it diffs the old and new state and publishes a `TaskChangedEvent` per changed field (`status`, `priority`, `assignee_id`, `due_date`). Publishing happens in a detached goroutine with a 5-second timeout so a slow Redis never blocks the API response.
-- A `NotificationWorker` goroutine reads from the stream via `XREADGROUP` (consumer group `notif-workers`, batch of 10, 5-second block). For each message it looks up the assignee in Postgres, sends the email via stdlib `net/smtp`, then calls `XACK`. If the send fails, it skips the ACK — the message stays pending and is retried automatically.
-- A 60-second ticker runs `XAUTOCLAIM` to reclaim any message sitting unacknowledged for more than 5 minutes, which covers worker crashes mid-send.
+**Why Redis Streams?** Events get written to a durable log (`taskflow:task:events`) and stay there until a consumer explicitly ACKs them. That means notifications survive restarts and deploys — the worker picks up where it left off.
 
-**Other details.**
-- If `NOTIFICATIONS_ENABLED=false` (the default), a `NoopPublisher` is wired in and no Redis client or worker goroutine is started.
-- The SMTP sender skips `PlainAuth` when no credentials are set, so it works out of the box against MailHog in dev.
+**How the flow works:**
+- `TaskService` is the only producer. On task create (with an assignee) or update, it diffs old vs. new state and publishes a `TaskChangedEvent` per changed field (`status`, `priority`, `assignee_id`, `due_date`). Publishing happens in a detached goroutine with a 5-second timeout so a slow Redis never blocks the HTTP response.
+- A `NotificationWorker` goroutine reads from the stream via `XREADGROUP` (consumer group `notif-workers`, batch of 10, 5-second block). It looks up the assignee, sends the email via stdlib `net/smtp`, then ACKs. If the send fails, it skips the ACK — the message stays pending and gets retried automatically.
+- A 60-second ticker runs `XAUTOCLAIM` to reclaim messages that have been sitting unacknowledged for more than 5 minutes. That covers the case where a worker crashes mid-send.
+
+**A few other details:**
+- `NOTIFICATIONS_ENABLED=false` (the default) wires in a `NoopPublisher` — no Redis client or worker goroutine is started at all.
+- The SMTP sender skips `PlainAuth` when no credentials are configured, so it works out of the box against MailHog in dev.
 - The stream is soft-capped at ~10,000 entries via approximate `MAXLEN` trimming on every `XADD`.
 
 ### Frontend
 
 ![alt text](image-2.png)
 
+**Zustand for auth, hook controllers for server state.** Auth state is tiny and global. Server state (projects, tasks) is fetched and cached by page-scoped controller hooks that call the API directly. I didn't reach for React Query or SWR — at this scale, the extra dependency isn't worth it.
 
-**Zustand for auth, hook controllers for server state.** Auth state is tiny and global (token + user). Server state (projects, tasks) is fetched and stored by page-scoped controllers that call the API directly — no React Query or SWR dependency needed at this scale.
+**Optimistic task updates.** Dragging a card or changing a status dropdown applies the change immediately and reverts on API error. The board feels instant rather than sluggish.
 
-**Optimistic UI for task status.** Dragging a task card or selecting a new status from the dropdown applies the change immediately and reverts on API error — so the board feels instant.
+**Component hierarchy.** Page → ViewModel hook → UI components. The ViewModel derives `visibleColumns`, `userMap`, and `assigneeOptions` from raw store state. Components stay presentation-only — they receive data and fire callbacks, nothing else.
 
-**Component hierarchy.** Page → ViewModel hook (derives display data) → UI components. The ViewModel produces `visibleColumns`, `userMap`, and `assigneeOptions` from raw store state. Components stay presentation-only.
-
-**Tradeoffs:** no end-to-end tests; no pagination UI (the API supports it, the frontend always fetches up to 1 000 tasks per project).
+**Honest tradeoffs:** no end-to-end tests, and the frontend always fetches up to 1,000 tasks per project (the API returns pagination metadata; the UI just doesn't use it yet).
 
 ---
 
-## 3. Running Locally
+## 3. Running locally
 
-> Requires Docker Desktop. No other tools needed.
+> Requires Docker Desktop. Nothing else.
 
 ```bash
 git clone https://github.com/harshpn/taskflow-harsh-pandey
@@ -92,19 +93,19 @@ cd taskflow-harsh-pandey
 
 cp .env.example .env
 
-# First run — build images, apply migrations, seed, start all services
+# First run — builds images, applies migrations, seeds data, starts everything
 docker compose up --build
 
-# Every subsequent run
+# Every run after that
 docker compose up
 ```
 
 **App:** http://localhost:3000  
 **API:** http://localhost:8080
 
-Hot reload is active in this mode:
-- **Backend** — `air` recompiles on every `.go` save (~1 s restart)
-- **Frontend** — Vite HMR pushes changes to the browser without a full reload
+Hot reload works in dev mode:
+- **Backend** — `air` recompiles on every `.go` save (~1s restart)
+- **Frontend** — Vite HMR pushes changes without a full reload
 
 ### Production build
 
@@ -114,17 +115,17 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 
 ---
 
-## 4. Running Migrations
+## 4. Migrations
 
-Migrations run **automatically** on `docker compose up` via the `migrate` service (uses the official `golang-migrate/migrate` Docker image). The `backend` service only starts after migrations and seed complete.
+Migrations run automatically on `docker compose up` via the `migrate` service. The backend service waits until migrations and seed complete before starting.
 
-To run migrations manually against a running database:
+To run them manually against a running database:
 
 ```bash
 # Up
 docker compose run --rm migrate
 
-# Down (rolls back all)
+# Down (rolls back everything)
 docker compose run --rm migrate \
   -path=/migrations \
   -database "postgres://taskflow:taskflow@postgres:5432/taskflow?sslmode=disable" \
@@ -133,9 +134,9 @@ docker compose run --rm migrate \
 
 ---
 
-## 5. Test Credentials
+## 5. Test credentials
 
-The seed script inserts a ready-to-use account:
+The seed script creates a ready-to-use account:
 
 ```
 Email:    test@example.com
@@ -144,7 +145,7 @@ Password: password123
 
 ---
 
-## 6. API Reference
+## 6. API reference
 
 Base URL: `http://localhost:8080`  
 All endpoints accept and return `application/json`.  
@@ -186,7 +187,7 @@ Protected endpoints require `Authorization: Bearer <access_token>`.
 | DELETE | `/projects/:id` | Delete project + all tasks (owner only) |
 | GET | `/projects/:id/stats` | Task counts by status and assignee |
 
-**Pagination response shape:**
+**Pagination response:**
 ```json
 {
   "projects": [...],
@@ -211,7 +212,7 @@ Protected endpoints require `Authorization: Bearer <access_token>`.
 | PATCH | `/tasks/:id` | Update task fields |
 | DELETE | `/tasks/:id` | Delete task (owner or creator only) |
 
-**Task PATCH body** — all fields optional; send only what changes:
+**Task PATCH body** — all fields optional; send only what changed:
 ```json
 {
   "title": "Updated title",
@@ -232,7 +233,7 @@ To clear a nullable field, send `null`:
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/users?q=search` | List users (for assignee picker) |
+| GET | `/users?q=search` | List users (for the assignee picker) |
 
 ### Error responses
 
@@ -252,23 +253,23 @@ To clear a nullable field, send `null`:
 
 ---
 
-## 7. What's Missing & What I'd Do With More Time
+## 7. What I'd do with more time
 
 **Testing**
-- Integration tests against a real Postgres instance for the full CRUD lifecycle
-- Authorization matrix tests: owner vs. creator vs. assignee vs. unrelated user for every mutation
+- Integration tests against a real Postgres instance for the full CRUD lifecycle — the kind that would have caught the auth edge cases I had to think through manually
+- An authorization matrix test: owner vs. creator vs. assignee vs. unrelated user for every mutation
 - Frontend component tests with Testing Library
 
 **Production hardening**
-- Liveness/readiness split on `/health` — readiness should ping the DB
-- Key rotation path for JWT signing keys (the infrastructure is present; UI and tooling are not)
+- Split `/health` into liveness and readiness — readiness should actually ping the DB before reporting healthy
+- A key rotation path for JWT signing keys (the infrastructure is there; the tooling and UI aren't)
 - Rate limiting on auth endpoints
 
-**Features**
-- Real-time task updates via SSE — the backend request-ID plumbing and structured logging make it straightforward to wire up
-- Pagination controls in the frontend (the API already returns `pagination` metadata)
-- Project stats chart — a stacked bar showing done/in_progress/todo trends over time
+**Features I wanted to add**
+- Real-time task updates via SSE — the structured logging and request-ID plumbing are already in place; it's mostly wiring
+- Pagination controls in the frontend (the API already returns the metadata; the UI just ignores it)
+- A project stats chart — stacked bar, done/in_progress/todo over time
 
-**DevEx**
-- `make` targets for common tasks (build, test, migrate, seed)
-- Pre-commit hook to run `go vet` and `tsc --noEmit` before every commit
+**Developer experience**
+- `make` targets for the common operations (build, test, migrate, seed)
+- A pre-commit hook to run `go vet` and `tsc --noEmit` before every push
