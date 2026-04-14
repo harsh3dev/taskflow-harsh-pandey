@@ -11,6 +11,7 @@ import { useProjectDetailTaskController } from "../features/project-detail/contr
 import { useProjectDetailViewModel } from "../features/project-detail/hooks/useProjectDetailViewModel";
 import { getProjectStats } from "../lib/services/projects";
 import { ProjectStats, TaskStatus } from "../lib/types";
+import { Skeleton } from "../components/ui/skeleton";
 
 export function ProjectDetailPage() {
   const { projectId = "" } = useParams();
@@ -52,7 +53,51 @@ export function ProjectDetailPage() {
   }, [projectId, allTasks.length]);
 
   if (loadingProject) {
-    return <ProjectDetailState message="Loading project..." />;
+    return (
+      <div className="flex min-h-[calc(100vh-60px)]">
+        {/* Skeleton Sidebar */}
+        <aside className="hidden flex-col gap-6 border-r border-border bg-card p-5 md:flex md:w-60 md:shrink-0 md:static md:sticky md:top-[60px] md:h-[calc(100vh-60px)]">
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+          <div className="flex flex-col gap-2 mt-4">
+            <Skeleton className="mb-2 h-3 w-16" />
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center justify-between py-1.5">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-8" />
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* Skeleton Main content */}
+        <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 md:p-6 overflow-hidden">
+          {/* Header/Filter actions */}
+          <div className="flex flex-wrap items-center gap-4">
+            <Skeleton className="h-9 w-[180px] rounded-md" />
+            <Skeleton className="h-9 w-[180px] rounded-md" />
+            <Skeleton className="ml-auto h-9 w-[120px] rounded-md" />
+          </div>
+
+          {/* Board columns */}
+          <div className="flex flex-1 gap-6 overflow-hidden mt-4">
+            {[1, 2, 3].map((col) => (
+              <div key={col} className="flex w-[320px] shrink-0 flex-col gap-3">
+                <Skeleton className="h-6 w-24 mb-2" />
+                {[1, 2, 3].map((card) => (
+                  <Skeleton key={card} className="h-32 w-full rounded-xl" />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (projectError || !project) {

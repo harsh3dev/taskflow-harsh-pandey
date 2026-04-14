@@ -2,6 +2,7 @@ import { Button } from "../ui/button";
 import { Project } from "../../lib/types";
 import { ProjectCard } from "./ProjectCard";
 import { ProjectsEmptyState } from "./ProjectsEmptyState";
+import { Skeleton } from "../ui/skeleton";
 
 type ProjectsListSectionProps = {
   loading: boolean;
@@ -30,7 +31,13 @@ export function ProjectsListSection({
         </Button>
       </div>
 
-      {loading ? <div className="py-8 text-muted-foreground">Loading projects...</div> : null}
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-[141px] w-full rounded-xl" />
+          ))}
+        </div>
+      ) : null}
 
       {!loading && projects.length === 0 ? <ProjectsEmptyState /> : null}
 

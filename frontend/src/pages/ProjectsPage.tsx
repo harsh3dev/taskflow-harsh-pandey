@@ -11,6 +11,7 @@ import { ProjectsEmptyState } from "../components/projects/ProjectsEmptyState";
 import { createProject, listProjects } from "../lib/services/projects";
 import { getErrorMessage } from "../lib/utils";
 import { Project } from "../lib/types";
+import { Skeleton } from "../components/ui/skeleton";
 
 export function ProjectsPage() {
   const api = useApi();
@@ -115,8 +116,10 @@ export function ProjectsPage() {
 
         {/* Loading */}
         {loading ? (
-          <div className="flex flex-1 items-center justify-center py-16 text-sm text-muted-foreground">
-            Loading projects…
+          <div className="m-4 flex flex-col gap-2">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[72px] w-full rounded-xl" />
+            ))}
           </div>
         ) : null}
 

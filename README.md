@@ -8,6 +8,14 @@ A full-stack task management system with authentication, projects, tasks, and te
 
 TaskFlow lets users register, log in, create projects, add tasks, and assign them to team members. It ships as a single `docker compose up` command that stands up PostgreSQL, runs migrations, seeds demo data, and starts both the API and React frontend.
 
+**Key Features:**
+- **Secure Authentication**: JWT-based authentication with refresh token rotation and replay detection.
+- **Projects & Tasks**: Full CRUD for projects and associated tasks. Focus on access control boundaries.
+- **Interactive Board**: Drag-and-drop task ordering and status updates using `@dnd-kit/core`.
+- **Optimistic Updates**: Immediate UI updates that revert automatically on API failures.
+- **Background Processes**: Asynchronous worker thread handling SMTP email deliveries out-of-band.
+- **Data Integrity**: Enforced via strict PostgreSQL schemas, parameterization, and indices rather than ORMs.
+
 **Tech stack**
 
 | Layer | Choice |
@@ -27,6 +35,8 @@ TaskFlow lets users register, log in, create projects, add tasks, and assign the
 
 ### Backend
 
+![alt text](image.png)
+
 **No framework.** Go's `net/http` with 1.22 pattern matching handles routing without adding a dependency. The route surface is small enough that a framework would be overhead, not help.
 
 **Layered architecture.** Transport (`httpapi`) → Service (business logic, validation, auth policy) → Store (SQL). Each layer depends only on interfaces defined by the layer above it — `httpapi` consumes `projectService`/`taskService`/`authService` interfaces; services consume narrow repository interfaces. This lets each layer be tested in isolation.
@@ -39,7 +49,28 @@ TaskFlow lets users register, log in, create projects, add tasks, and assign the
 
 **Intentional omissions:** rate limiting, WebSocket real-time updates, and Redis caching were scoped out. The architecture makes each straightforward to add.
 
+### Email Sending Mechanism
+
+![alt text](image-1.png)
+
+Task assignment and field-change notifications are delivered asynchronously — the HTTP response never waits on email delivery.
+
+**Why Redis Streams.** The naive approach (`go sendEmail(...)`) silently loses notifications if the process crashes after the DB write but before the goroutine completes. Redis Streams solve this: events are written to a durable log (`taskflow:task:events`) and only removed once a consumer explicitly ACKs them, so notifications survive restarts and deploys.
+
+**How it works.**
+- `TaskService` is the only producer. On task create (with an assignee) or update, it diffs the old and new state and publishes a `TaskChangedEvent` per changed field (`status`, `priority`, `assignee_id`, `due_date`). Publishing happens in a detached goroutine with a 5-second timeout so a slow Redis never blocks the API response.
+- A `NotificationWorker` goroutine reads from the stream via `XREADGROUP` (consumer group `notif-workers`, batch of 10, 5-second block). For each message it looks up the assignee in Postgres, sends the email via stdlib `net/smtp`, then calls `XACK`. If the send fails, it skips the ACK — the message stays pending and is retried automatically.
+- A 60-second ticker runs `XAUTOCLAIM` to reclaim any message sitting unacknowledged for more than 5 minutes, which covers worker crashes mid-send.
+
+**Other details.**
+- If `NOTIFICATIONS_ENABLED=false` (the default), a `NoopPublisher` is wired in and no Redis client or worker goroutine is started.
+- The SMTP sender skips `PlainAuth` when no credentials are set, so it works out of the box against MailHog in dev.
+- The stream is soft-capped at ~10,000 entries via approximate `MAXLEN` trimming on every `XADD`.
+
 ### Frontend
+
+![alt text](image-2.png)
+
 
 **Zustand for auth, hook controllers for server state.** Auth state is tiny and global (token + user). Server state (projects, tasks) is fetched and stored by page-scoped controllers that call the API directly — no React Query or SWR dependency needed at this scale.
 
@@ -221,7 +252,7 @@ To clear a nullable field, send `null`:
 
 ---
 
-## 7. What I'd Do With More Time
+## 7. What's Missing & What I'd Do With More Time
 
 **Testing**
 - Integration tests against a real Postgres instance for the full CRUD lifecycle

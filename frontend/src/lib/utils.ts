@@ -13,6 +13,9 @@ export function getErrorMessage(error: unknown, fallback: string) {
     return error.message;
   }
   if (error instanceof Error) {
+    if (error.message === "Failed to fetch" || error.message.includes("NetworkError")) {
+      return "Unable to connect to the server. Please check your internet connection or ensure the backend service is running.";
+    }
     return error.message;
   }
   return fallback;
