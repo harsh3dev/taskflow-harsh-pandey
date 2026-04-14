@@ -3,14 +3,19 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/harshpn/taskflow/internal/events"
 	"github.com/harshpn/taskflow/internal/store"
 )
 
 type TaskService struct {
-	repo taskStore
+	repo      taskStore
+	publisher events.EventPublisher
+	logger    *slog.Logger
 }
 
 type OptionalString struct {
@@ -40,8 +45,8 @@ type ValidatedTaskInput struct {
 	UpdateInput store.UpdateTaskInput
 }
 
-func NewTaskService(repo taskStore) *TaskService {
-	return &TaskService{repo: repo}
+func NewTaskService(repo taskStore, publisher events.EventPublisher, logger *slog.Logger) *TaskService {
+	return &TaskService{repo: repo, publisher: publisher, logger: logger}
 }
 
 func (s *TaskService) CreateTask(ctx context.Context, projectID, actorID string, input TaskCreateInput) (Task, map[string]string, error) {
@@ -61,7 +66,25 @@ func (s *TaskService) CreateTask(ctx context.Context, projectID, actorID string,
 	if err != nil {
 		return Task{}, nil, err
 	}
-	return taskFromStore(task), nil, nil
+
+	result := taskFromStore(task)
+
+	// Notify assignee when a task is created with an assignee.
+	if task.AssigneeID != nil && *task.AssigneeID != "" {
+		s.publishEvent(ctx, events.TaskChangedEvent{
+			EventID:    newEventID(),
+			TaskID:     task.ID,
+			ProjectID:  task.ProjectID,
+			TaskTitle:  task.Title,
+			AssigneeID: *task.AssigneeID,
+			ChangeKind: events.ChangeKindAssignee,
+			OldValue:   "",
+			NewValue:   *task.AssigneeID,
+			ChangedAt:  task.CreatedAt,
+		})
+	}
+
+	return result, nil, nil
 }
 
 func (s *TaskService) UpdateTask(ctx context.Context, taskID, actorID string, input TaskUpdateInput) (Task, map[string]string, error) {
@@ -86,6 +109,12 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID, actorID string, in
 		}
 	}
 
+	// Snapshot the task before the update so we can diff changed fields.
+	oldTask, err := s.repo.GetTask(ctx, taskID)
+	if err != nil {
+		return Task{}, nil, err
+	}
+
 	updateInput := validated.UpdateInput
 	updateInput.ID = taskID
 	updateInput.ActorID = actorID
@@ -94,6 +123,9 @@ func (s *TaskService) UpdateTask(ctx context.Context, taskID, actorID string, in
 	if err != nil {
 		return Task{}, nil, err
 	}
+
+	s.emitChangeEvents(ctx, oldTask, task)
+
 	return taskFromStore(task), nil, nil
 }
 
@@ -251,4 +283,112 @@ func isStatusOnlyTaskUpdate(input store.UpdateTaskInput, assigneeSet bool) bool 
 		!input.Priority.Set &&
 		!input.DueDate.Set &&
 		!assigneeSet
+}
+
+// emitChangeEvents diffs old and new task state and publishes one event per
+// changed watched field. Events are published asynchronously so that email
+// delivery never blocks the HTTP response.
+func (s *TaskService) emitChangeEvents(ctx context.Context, old, updated store.Task) {
+	if updated.AssigneeID == nil {
+		return // no assignee → no one to notify
+	}
+	assigneeID := *updated.AssigneeID
+	now := updated.UpdatedAt
+
+	if old.Status != updated.Status {
+		s.publishEvent(ctx, events.TaskChangedEvent{
+			EventID:    newEventID(),
+			TaskID:     updated.ID,
+			ProjectID:  updated.ProjectID,
+			TaskTitle:  updated.Title,
+			AssigneeID: assigneeID,
+			ChangeKind: events.ChangeKindStatus,
+			OldValue:   old.Status,
+			NewValue:   updated.Status,
+			ChangedAt:  now,
+		})
+	}
+
+	if old.Priority != updated.Priority {
+		s.publishEvent(ctx, events.TaskChangedEvent{
+			EventID:    newEventID(),
+			TaskID:     updated.ID,
+			ProjectID:  updated.ProjectID,
+			TaskTitle:  updated.Title,
+			AssigneeID: assigneeID,
+			ChangeKind: events.ChangeKindPriority,
+			OldValue:   old.Priority,
+			NewValue:   updated.Priority,
+			ChangedAt:  now,
+		})
+	}
+
+	// Assignee changed: notify the newly assigned user.
+	oldAssignee := ptrVal(old.AssigneeID)
+	newAssignee := ptrVal(updated.AssigneeID)
+	if oldAssignee != newAssignee && newAssignee != "" {
+		s.publishEvent(ctx, events.TaskChangedEvent{
+			EventID:    newEventID(),
+			TaskID:     updated.ID,
+			ProjectID:  updated.ProjectID,
+			TaskTitle:  updated.Title,
+			AssigneeID: assigneeID,
+			ChangeKind: events.ChangeKindAssignee,
+			OldValue:   oldAssignee,
+			NewValue:   newAssignee,
+			ChangedAt:  now,
+		})
+	}
+
+	oldDue := formatDueDate(old.DueDate)
+	newDue := formatDueDate(updated.DueDate)
+	if oldDue != newDue {
+		s.publishEvent(ctx, events.TaskChangedEvent{
+			EventID:    newEventID(),
+			TaskID:     updated.ID,
+			ProjectID:  updated.ProjectID,
+			TaskTitle:  updated.Title,
+			AssigneeID: assigneeID,
+			ChangeKind: events.ChangeKindDueDate,
+			OldValue:   oldDue,
+			NewValue:   newDue,
+			ChangedAt:  now,
+		})
+	}
+}
+
+// publishEvent fires the event in a background goroutine so that email
+// delivery latency never blocks the HTTP response. Errors are logged only.
+func (s *TaskService) publishEvent(ctx context.Context, event events.TaskChangedEvent) {
+	go func() {
+		// Use a detached context so that HTTP request cancellation does not
+		// abort the publish after the response has already been sent.
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.publisher.Publish(pubCtx, event); err != nil {
+			s.logger.Error("publish task event",
+				"error", err,
+				"task_id", event.TaskID,
+				"change_kind", event.ChangeKind,
+			)
+		}
+	}()
+}
+
+func newEventID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+func ptrVal(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func formatDueDate(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format("2006-01-02")
 }

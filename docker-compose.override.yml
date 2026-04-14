@@ -21,6 +21,13 @@ services:
       ACCESS_TOKEN_TTL:  ${ACCESS_TOKEN_TTL:-15m}
       REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-720h}
       BCRYPT_COST:       ${BCRYPT_COST:-12}
+      REDIS_URL:         ${REDIS_URL:-redis://redis:6379}
+      NOTIFICATIONS_ENABLED: "true"
+      SMTP_HOST:         mailhog
+      SMTP_PORT:         "1025"
+      SMTP_USERNAME:     ""
+      SMTP_PASSWORD:     ""
+      SMTP_FROM:         noreply@taskflow.dev
     volumes:
       # Mount source for live reload; exclude the compiled tmp dir.
       - ./backend:/app
@@ -32,6 +39,8 @@ services:
     depends_on:
       seed:
         condition: service_completed_successfully
+      mailhog:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
@@ -50,6 +59,15 @@ services:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  # ── MailHog ──────────────────────────────────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: taskflow-mailhog
+    ports:
+      - "8025:8025"   # Web UI  → open http://localhost:8025 to see caught emails
+      - "1025:1025"   # SMTP    → backend sends here
     restart: unless-stopped
 
 volumes:

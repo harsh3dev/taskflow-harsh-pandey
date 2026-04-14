@@ -52,10 +52,17 @@ export function TaskCard({
   const isDeleting = deletingTaskId === task.id;
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      {...attributes} 
+      {...listeners}
+      className={cn("touch-none", isDragging && "z-50 relative")}
+    >
       <Card
         className={cn(
           "cursor-pointer transition-shadow hover:shadow-md",
+          isDragging ? "cursor-grabbing shadow-lg" : "cursor-grab",
           isDeleting && "opacity-40 pointer-events-none"
         )}
         onClick={() => onCardClick(task)}
@@ -63,16 +70,9 @@ export function TaskCard({
         <CardContent className="flex flex-col gap-2 p-3">
           {/* Top row: drag handle + priority */}
           <div className="flex items-center justify-between gap-2">
-            <button
-              {...listeners}
-              {...attributes}
-              aria-label="Drag task"
-              className="cursor-grab touch-none rounded p-0.5 text-muted-foreground/50 hover:bg-muted active:cursor-grabbing"
-              type="button"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="text-muted-foreground/30 pointer-events-none">
               <DragIcon />
-            </button>
+            </div>
             <span
               className={cn(
                 "rounded-full border px-2 py-0.5 text-[0.68rem] font-medium",

@@ -11,8 +11,11 @@ type ProjectListItemProps = {
 export function ProjectListItem({ project, currentUserId }: ProjectListItemProps) {
   const isOwner = project.owner_id === currentUserId;
 
-  return (
-    <div className="group flex flex-col gap-2 border-b border-border px-4 py-3 transition-colors last:border-0 hover:bg-muted/40 sm:flex-row sm:items-center sm:gap-4">
+    return (
+    <Link 
+      to={`/projects/${project.id}`}
+      className="group flex flex-col gap-2 border-b border-border px-4 py-3 cursor-pointer transition-colors last:border-0 hover:bg-muted/40 sm:flex-row sm:items-center sm:gap-4"
+    >
       {/* Badge */}
       <Badge variant="secondary" className="w-fit shrink-0 text-[0.7rem]">
         {isOwner ? "Owner" : "Contributor"}
@@ -31,13 +34,10 @@ export function ProjectListItem({ project, currentUserId }: ProjectListItemProps
         {formatDateTime(project.created_at)}
       </span>
 
-      {/* Open link */}
-      <Link
-        className="w-fit shrink-0 text-sm font-semibold text-primary transition-transform duration-150 group-hover:translate-x-0.5"
-        to={`/projects/${project.id}`}
-      >
+      {/* Open link indicator */}
+      <span className="w-fit shrink-0 text-sm font-semibold text-primary transition-transform duration-150 group-hover:translate-x-0.5">
         Open →
-      </Link>
-    </div>
-  );
+      </span>
+    </Link>
+ );
 }

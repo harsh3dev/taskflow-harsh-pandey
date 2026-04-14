@@ -19,6 +19,23 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: taskflow-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
   # ── Migrations ───────────────────────────────────────────────────────────────
   migrate:
     image: migrate/migrate:v4.18.1
@@ -49,3 +66,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

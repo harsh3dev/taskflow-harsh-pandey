@@ -389,7 +389,7 @@ func (s *Store) GetTaskAccess(ctx context.Context, taskID, actorID string) (Task
 			t.project_id,
 			(p.owner_id = $2) AS is_owner,
 			(t.creator_id = $2) AS is_creator,
-			(t.assignee_id = $2) AS is_assignee
+			COALESCE((t.assignee_id = $2), false) AS is_assignee
 		FROM tasks t
 		INNER JOIN projects p ON p.id = t.project_id
 		WHERE t.id = $1

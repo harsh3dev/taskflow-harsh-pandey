@@ -36,6 +36,7 @@ type projectStore interface {
 // It also includes GetUserByID for assignee existence validation.
 type taskStore interface {
 	CreateTask(ctx context.Context, input store.CreateTaskInput) (store.Task, error)
+	GetTask(ctx context.Context, taskID string) (store.Task, error)
 	UpdateTask(ctx context.Context, input store.UpdateTaskInput) (store.Task, error)
 	DeleteTask(ctx context.Context, taskID, actorID string) error
 	GetTaskAccess(ctx context.Context, taskID, actorID string) (store.TaskAccess, error)

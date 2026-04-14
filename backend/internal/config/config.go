@@ -27,6 +27,14 @@ type Config struct {
 	HTTPWriteTimeout    time.Duration
 	HTTPIdleTimeout     time.Duration
 	MaxRequestBodyBytes int64
+	// Notifications
+	NotificationsEnabled bool
+	RedisURL             string
+	SMTPHost             string
+	SMTPPort             int
+	SMTPUsername         string
+	SMTPPassword         string
+	SMTPFromAddress      string
 }
 
 func Load() (Config, error) {
@@ -101,6 +109,18 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.MaxRequestBodyBytes = int64(maxBodyBytes)
+
+	// Notifications
+	cfg.NotificationsEnabled = strings.EqualFold(envOrDefault("NOTIFICATIONS_ENABLED", "false"), "true")
+	cfg.RedisURL = envOrDefault("REDIS_URL", "redis://localhost:6379")
+	cfg.SMTPHost = envOrDefault("SMTP_HOST", "localhost")
+	cfg.SMTPPort, err = intEnvSetting("SMTP_PORT", 1025, false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.SMTPUsername = os.Getenv("SMTP_USERNAME")
+	cfg.SMTPPassword = os.Getenv("SMTP_PASSWORD")
+	cfg.SMTPFromAddress = envOrDefault("SMTP_FROM", "noreply@taskflow.app")
 
 	return cfg, nil
 }

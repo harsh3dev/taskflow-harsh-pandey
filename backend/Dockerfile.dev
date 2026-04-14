@@ -1,7 +1,15 @@
-FROM golang:1.23-alpine
+FROM golang:1.23
 
-# Install air for hot reload — pin to a version compatible with Go 1.22.
+# golang:1.23 (Debian-based) ships with ca-certificates pre-installed and
+# fully trusted, so no manual certificate setup is required.
+
+# Install air for hot reload.
+# GONOSUMDB skips the checksum DB lookup during build only — Docker Desktop's
+# TLS proxy intercepts sum.golang.org during image builds on some Mac setups.
+# This does NOT affect runtime TLS; SMTP will still do full certificate verification.
+ENV GONOSUMDB=*
 RUN go install github.com/air-verse/air@v1.61.7
+ENV GONOSUMDB=
 
 WORKDIR /app
 
